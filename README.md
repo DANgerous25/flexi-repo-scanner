@@ -25,18 +25,14 @@ A self-hosted, LLM-powered code analysis platform with a web dashboard. Connects
 git clone https://github.com/DANgerous25/flexi-repo-scanner.git
 cd flexi-repo-scanner
 
-# 2. Install
-./install.sh
-# Creates Python venv, installs deps, copies example configs, builds frontend
+# 2. Interactive setup — walks you through everything
+./setup.sh
+# Installs deps, asks for GitHub token, LLM API keys, SMTP config.
+# Creates .env, config/settings.yaml, config/connections.yaml, and starter tasks.
+# No manual file editing required.
 
-# 3. Configure
-# Edit config/settings.yaml — add LLM API keys, SMTP settings
-# Edit config/connections.yaml — add GitHub repos and token
-# Optionally: create tasks in config/tasks/ or use the web UI
-
-# 4. Run
-source venv/bin/activate
-python -m backend.main
+# 3. Run
+./run.sh
 # → Server running at http://localhost:8400
 ```
 
@@ -60,23 +56,32 @@ smtp:
   from_address: "scanner@yourdomain.com"
 
 llm:
+  fallback_order:       # Providers tried in sequence when a call fails
+    - ollama            # Local models — free, no API key needed
+    - groq              # Fast inference, generous free tier
+    - deepseek          # Very cheap
+    - anthropic         # Strong code analysis
+    - openai            # Wide model range
+
   providers:
-    anthropic:
-      api_key: "${ANTHROPIC_API_KEY}"
-      models:
-        - id: "anthropic/claude-sonnet-4-6"
-          name: "Claude Sonnet 4.5"
     ollama:
       base_url: "http://localhost:11434"
       models:
         - id: "ollama/qwen3:14b"
           name: "Qwen 3 14B (local)"
+    anthropic:
+      api_key: "${ANTHROPIC_API_KEY}"
+      models:
+        - id: "anthropic/claude-sonnet-4-6"
+          name: "Claude Sonnet 4"
 
 retention:
   results_days: 30
 ```
 
-Environment variables (`${VAR_NAME}`) are interpolated at runtime — secrets never need to be stored in plaintext.
+The `fallback_order` defines which provider to try next when one fails. Unset API keys (`${...}` with no matching env var) are automatically skipped.
+
+Environment variables are interpolated at runtime — secrets live in `.env` (gitignored), never in config files.
 
 ### GitHub Connections — `config/connections.yaml`
 
