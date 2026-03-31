@@ -49,9 +49,17 @@ ask() {
 ask_secret() {
   local prompt="$1"
   local var_name="$2"
-  echo -ne "  ${prompt}: "
-  read -rs input
-  echo ""
+  # Use -s for hidden input, but some terminals have issues with
+  # special chars (@, capitals) in raw mode. Fall back gracefully.
+  echo -ne "  ${prompt} ${DIM}(input hidden)${RESET}: "
+  if read -rs input 2>/dev/null; then
+    echo ""
+  else
+    # Fallback: visible input if -s fails
+    echo ""
+    echo -ne "  ${prompt}: "
+    read -r input
+  fi
   eval "$var_name='$input'"
 }
 
@@ -331,7 +339,7 @@ mkdir -p config/tasks
 # Show existing connections if re-running
 EXISTING_CONNS=""
 if [[ -f "config/connections.yaml" ]]; then
-  EXISTING_CONNS=$(grep -c 'id:' config/connections.yaml 2>/dev/null || echo "0")
+  EXISTING_CONNS=$(grep -c 'id:' config/connections.yaml 2>/dev/null | tr -d ' \n' || echo "0")
   if [[ "$EXISTING_CONNS" != "0" ]]; then
     info "${GREEN}Existing connections:${RESET}"
     grep 'id:\|owner:\|repo:' config/connections.yaml | sed 's/^/    /'
@@ -660,7 +668,7 @@ fi
 step "Scan tasks"
 
 # Count existing tasks
-EXISTING_TASKS=$(ls config/tasks/*.yaml 2>/dev/null | wc -l || echo "0")
+EXISTING_TASKS=$(ls config/tasks/*.yaml 2>/dev/null | wc -l | tr -d ' \n' || echo "0")
 
 if [[ "$EXISTING_TASKS" -gt 0 ]]; then
   info "${GREEN}Existing tasks:${RESET}"
@@ -672,7 +680,7 @@ if [[ "$EXISTING_TASKS" -gt 0 ]]; then
 fi
 
 # Get connection count from connections.yaml
-CONN_COUNT_FILE=$(grep -c 'id:' config/connections.yaml 2>/dev/null || echo "0")
+CONN_COUNT_FILE=$(grep -c 'id:' config/connections.yaml 2>/dev/null | tr -d ' \n' || echo "0")
 
 SHOW_TASK_MENU=false
 
