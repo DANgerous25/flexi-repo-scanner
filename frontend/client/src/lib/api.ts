@@ -106,7 +106,7 @@ export async function fetchConnections(): Promise<Connection[]> {
   return get<any[]>("/api/connections").then((list) =>
     list.map((c) => ({
       ...c,
-      status: c.status ?? "connected",
+      status: c.status ?? "untested",
       rate_limit_remaining: c.rate_limit_remaining,
       rate_limit_reset: c.rate_limit_reset,
     }))
@@ -133,7 +133,13 @@ export async function deleteConnection(id: string): Promise<void> {
 }
 
 export async function testConnection(id: string): Promise<{ success: boolean; message?: string }> {
-  return post<{ success: boolean; message?: string }>(`/api/connections/${encodeURIComponent(id)}/test`);
+  const raw = await post<any>(`/api/connections/${encodeURIComponent(id)}/test`);
+  // Backend returns { ok: true, name, private, default_branch, rate_limit } on success
+  // or { ok: false, error: "..." } on failure
+  return {
+    success: !!raw.ok,
+    message: raw.ok ? `Connected to ${raw.name}` : (raw.error ?? "Connection failed"),
+  };
 }
 
 // ── Results ─────────────────────────────────────────────
