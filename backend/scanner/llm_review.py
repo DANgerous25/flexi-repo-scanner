@@ -216,6 +216,7 @@ async def review_files(
         "output_tokens": result["output_tokens"],
         "cost": cost,
         "time_seconds": result["time_seconds"],
+        "model_used": result.get("model", ""),
         "raw_response": result["content"],
     }
 

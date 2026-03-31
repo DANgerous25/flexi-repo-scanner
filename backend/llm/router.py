@@ -152,6 +152,8 @@ async def complete(
             "error": f"No available provider for model '{model}'. Check LLM settings and fallback_order.",
         }
 
+    logger.info("LLM request: trying %s (fallback chain: %s)", models_to_try[0], " → ".join(models_to_try))
+
     last_error = ""
     for attempt_model in models_to_try:
         start = time.time()
@@ -166,6 +168,14 @@ async def complete(
 
             content = response.choices[0].message.content or ""
             usage = response.usage
+
+            logger.info(
+                "LLM response from %s: %d input tokens, %d output tokens, %.1fs",
+                attempt_model,
+                usage.prompt_tokens if usage else 0,
+                usage.completion_tokens if usage else 0,
+                elapsed,
+            )
 
             if models_to_try[0] != attempt_model:
                 logger.info(

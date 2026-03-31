@@ -16,6 +16,19 @@ from backend.actions import email_report, github_issue, generate_prompt, in_app_
 
 logger = logging.getLogger(__name__)
 
+# Track running asyncio tasks by run_id so they can be cancelled from the API.
+_running_runs: dict[str, asyncio.Task] = {}
+
+
+class TaskCancelled(Exception):
+    """Raised when a run is cancelled or stopped via the API."""
+
+
+async def _check_cancelled(run_id: str) -> bool:
+    """Check if this run has been cancelled/stopped in the DB."""
+    status = await db.get_run_status(run_id)
+    return status in ("cancelled", "failed")
+
 
 async def run_task(task: TaskConfig, settings: AppSettings) -> str:
     """Execute a scan task. Returns run_id."""
@@ -25,6 +38,11 @@ async def run_task(task: TaskConfig, settings: AppSettings) -> str:
 
     run_id = await db.create_run(task.id, task.scan.mode)
     await db.upsert_task_state(task.id, status="running", last_run_id=run_id)
+
+    # Register this run so it can be cancelled from the API
+    current_task = asyncio.current_task()
+    if current_task is not None:
+        _running_runs[run_id] = current_task
 
     client = GitHubClient(owner=conn.owner, repo=conn.repo, token=conn.token)
 
@@ -55,6 +73,17 @@ async def run_task(task: TaskConfig, settings: AppSettings) -> str:
 
         await db.update_run(run_id, total_files=len(files))
 
+        # Log model configuration for LLM-based scans
+        if task.scan.type in ("llm-review", "doc-coverage"):
+            if task.scan.llm.preferred_models:
+                logger.info(f"Task {task.id}: LLM models = {task.scan.llm.preferred_models}")
+            elif task.scan.llm.model:
+                logger.info(f"Task {task.id}: LLM model = {task.scan.llm.model}")
+
+        # Check for cancellation after file listing
+        if await _check_cancelled(run_id):
+            raise TaskCancelled(f"Run {run_id} cancelled before scan start")
+
         # Execute scan based on type
         all_findings: list[dict] = []
 
@@ -84,12 +113,20 @@ async def run_task(task: TaskConfig, settings: AppSettings) -> str:
         logger.info(f"Task {task.id} completed: {len(all_findings)} findings in {len(files)} files")
         return run_id
 
+    except TaskCancelled:
+        logger.info(f"Task {task.id} run {run_id} was cancelled")
+        return run_id
+    except asyncio.CancelledError:
+        logger.info(f"Task {task.id} run {run_id} asyncio task cancelled")
+        # DB status already set by the cancel/stop endpoint
+        return run_id
     except Exception as e:
         logger.error(f"Task {task.id} failed: {e}")
         await db.fail_run(run_id, str(e))
         await db.upsert_task_state(task.id, status="failed")
         raise
     finally:
+        _running_runs.pop(run_id, None)
         await client.close()
 
 
@@ -133,6 +170,8 @@ async def _run_pattern_scan(
 
         if scanned % 20 == 0:
             await db.update_run(run_id, scanned_files=scanned)
+            if await _check_cancelled(run_id):
+                raise TaskCancelled(f"Run {run_id} cancelled during pattern scan")
 
     return findings
 
@@ -168,6 +207,15 @@ async def _run_llm_scan(
             batch, task.scan.llm, settings, task.scan.llm.focus
         )
 
+        batch_num = i // batch_size + 1
+        model_used = result.get("model_used", "unknown")
+        logger.info(
+            f"Task {task.id}: LLM batch {batch_num} completed — model={model_used}, "
+            f"input_tokens={result.get('input_tokens', 0)}, "
+            f"output_tokens={result.get('output_tokens', 0)}, "
+            f"findings={len(result.get('findings', []))}"
+        )
+
         for f in result.get("findings", []):
             findings.append({
                 "run_id": run_id,
@@ -183,6 +231,9 @@ async def _run_llm_scan(
             })
 
         await db.update_run(run_id, scanned_files=min(i + batch_size, len(paths)))
+
+        if await _check_cancelled(run_id):
+            raise TaskCancelled(f"Run {run_id} cancelled during LLM scan")
 
     return findings
 
@@ -223,6 +274,8 @@ async def _run_doc_scan(
 
         if scanned % 20 == 0:
             await db.update_run(run_id, scanned_files=scanned)
+            if await _check_cancelled(run_id):
+                raise TaskCancelled(f"Run {run_id} cancelled during doc scan")
 
     return findings
 

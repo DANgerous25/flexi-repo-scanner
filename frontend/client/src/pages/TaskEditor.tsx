@@ -264,7 +264,7 @@ export default function TaskEditor() {
     }
   };
 
-  const applyGeneratedRules = () => {
+  const applyGeneratedRules = (mode: "add" | "replace") => {
     if (!generatePreview?.parsed) return;
     const parsed = generatePreview.parsed as { rules?: any[] };
     const newRules: PatternRule[] = (parsed.rules || []).map((r: any) => ({
@@ -276,8 +276,13 @@ export default function TaskEditor() {
       context_requires: r.context_requires,
     }));
     if (newRules.length > 0) {
-      setRules(newRules);
-      toast({ title: "Rules applied", description: `${newRules.length} rule(s) set from LLM suggestions` });
+      if (mode === "add") {
+        setRules([...rules, ...newRules]);
+        toast({ title: "Rules added", description: `${newRules.length} rule(s) appended to existing ${rules.length} rule(s)` });
+      } else {
+        setRules(newRules);
+        toast({ title: "Rules replaced", description: `All rules replaced with ${newRules.length} new rule(s)` });
+      }
     }
     setGeneratePreview(null);
   };
@@ -425,6 +430,38 @@ ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.reci
 
   return (
     <div className="space-y-6 max-w-[900px]">
+      {/* Identity Section — always visible at top */}
+      <Card className="bg-card border-card-border">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold">Identity</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-xs text-muted-foreground">Name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 h-9 text-sm bg-background border-border" data-testid="input-task-name" />
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Connection</Label>
+              <Select value={connection} onValueChange={setConnection}>
+                <SelectTrigger className="mt-1 h-9 text-sm bg-background border-border" data-testid="select-connection">
+                  <SelectValue placeholder="Select connection" />
+                </SelectTrigger>
+                <SelectContent>
+                  {connections.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name} ({c.owner}/{c.repo})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Description</Label>
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1 h-16 text-sm bg-background border-border resize-none" data-testid="input-task-description" />
+          </div>
+        </CardContent>
+      </Card>
+
       {/* NLP builder */}
       <Card className="bg-card border-card-border">
         <CardContent className="p-4">
@@ -469,9 +506,16 @@ ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.reci
             <pre className="text-xs font-mono bg-background rounded-lg p-3 overflow-auto max-h-[300px] border border-border whitespace-pre-wrap">
               {generatePreview.suggestions}
             </pre>
-            <div className="flex items-center gap-2">
-              <Button size="sm" className="h-7 text-xs" onClick={applyGeneratedRules}>Apply Rules</Button>
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setGeneratePreview(null)}>Dismiss</Button>
+            <div className="space-y-2">
+              <p className="text-[11px] text-muted-foreground">
+                {((generatePreview.parsed as any)?.rules || []).length} new rule(s) generated
+                {rules.length > 0 && <> · You have {rules.length} existing rule(s)</>}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button size="sm" className="h-7 text-xs" onClick={() => applyGeneratedRules("add")}>Add to Existing</Button>
+                <Button variant="outline" size="sm" className="h-7 text-xs border-destructive/40 text-destructive hover:bg-destructive/10" onClick={() => applyGeneratedRules("replace")}>Replace All</Button>
+                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setGeneratePreview(null)}>Dismiss</Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -625,38 +669,6 @@ ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.reci
       ) : (
         /* Form Editor */
         <div className="space-y-4">
-          {/* Identity Section */}
-          <Card className="bg-card border-card-border">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold">Identity</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Name</Label>
-                  <Input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 h-9 text-sm bg-background border-border" data-testid="input-task-name" />
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Connection</Label>
-                  <Select value={connection} onValueChange={setConnection}>
-                    <SelectTrigger className="mt-1 h-9 text-sm bg-background border-border" data-testid="select-connection">
-                      <SelectValue placeholder="Select connection" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {connections.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>{c.name} ({c.owner}/{c.repo})</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Description</Label>
-                <Textarea value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1 h-16 text-sm bg-background border-border resize-none" data-testid="input-task-description" />
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Schedule Section */}
           <Card className="bg-card border-card-border">
             <CardHeader className="pb-3">
@@ -996,7 +1008,7 @@ ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.reci
       )}
 
       {/* Footer buttons */}
-      <div className="flex items-center justify-end gap-3 pt-2 pb-8">
+      <div className="sticky bottom-0 z-10 flex items-center justify-end gap-3 py-3 px-4 -mx-4 mt-6 bg-background/95 backdrop-blur border-t border-border">
         <Button variant="outline" onClick={() => navigate("/tasks")} className="h-9" data-testid="button-cancel">
           <X className="w-4 h-4 mr-1.5" /> Cancel
         </Button>

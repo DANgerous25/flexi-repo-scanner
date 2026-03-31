@@ -224,6 +224,15 @@ async def get_task_runs(task_id: str, limit: int = 50) -> list[dict]:
     return [await _check_run_timeout(dict(r)) for r in rows]
 
 
+async def get_run_status(run_id: str) -> Optional[str]:
+    """Lightweight single-column query returning just the run status string."""
+    conn = await get_db()
+    rows = await conn.execute_fetchall(
+        "SELECT status FROM scan_runs WHERE id = ?", (run_id,)
+    )
+    return rows[0]["status"] if rows else None
+
+
 async def get_recent_runs(limit: int = 20) -> list[dict]:
     db = await get_db()
     rows = await db.execute_fetchall(

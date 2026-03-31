@@ -282,14 +282,14 @@ async def run_task_now(task_id: str):
 
     settings = config_loader.load_settings()
 
-    # Run in background
+    # Run in background and track the asyncio task for cancellation
     async def _run():
         try:
             await executor.run_task(task, settings)
         except Exception:
             pass
 
-    asyncio.create_task(_run())
+    task_obj = asyncio.create_task(_run())
     return {"message": f"Task {task_id} triggered", "task_id": task_id}
 
 

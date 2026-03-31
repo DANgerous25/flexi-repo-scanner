@@ -7,6 +7,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from backend.storage import db
+from backend.tasks.executor import _running_runs
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,14 @@ async def cancel_run(run_id: str):
     updated = await db.cancel_run(run_id, reason="Cancelled by user")
     # Also update the task state so the dashboard reflects the change
     await db.upsert_task_state(run["task_id"], status="failed")
-    logger.info("Run %s cancelled by user", run_id)
+
+    # Cancel the asyncio task if it's still running
+    atask = _running_runs.get(run_id)
+    if atask and not atask.done():
+        atask.cancel()
+        logger.info("Run %s cancelled by user (asyncio task cancelled)", run_id)
+    else:
+        logger.info("Run %s cancelled by user", run_id)
     return updated
 
 
@@ -46,5 +54,12 @@ async def stop_run(run_id: str):
 
     await db.fail_run(run_id, "Manually stopped by user")
     await db.upsert_task_state(run["task_id"], status="failed")
-    logger.info("Run %s manually stopped by user", run_id)
+
+    # Cancel the asyncio task if it's still running
+    atask = _running_runs.get(run_id)
+    if atask and not atask.done():
+        atask.cancel()
+        logger.info("Run %s manually stopped by user (asyncio task cancelled)", run_id)
+    else:
+        logger.info("Run %s manually stopped by user", run_id)
     return await db.get_run(run_id)
