@@ -162,10 +162,57 @@ async def fail_run(run_id: str, error_message: str) -> None:
     await update_run(run_id, status="failed", completed_at=_now(), error_message=error_message)
 
 
+async def cancel_run(run_id: str, reason: str = "Cancelled by user") -> Optional[dict]:
+    """Mark a run as cancelled. Returns the updated run or None if not found."""
+    run = await get_run(run_id)
+    if not run:
+        return None
+    await update_run(run_id, status="cancelled", completed_at=_now(), error_message=reason)
+    return await get_run(run_id)
+
+
+async def recover_stale_runs() -> list[dict]:
+    """Find all runs stuck in 'running' status and mark them as failed.
+    Returns the list of recovered runs."""
+    db = await get_db()
+    rows = await db.execute_fetchall(
+        "SELECT * FROM scan_runs WHERE status = 'running'"
+    )
+    stale = [dict(r) for r in rows]
+    now = _now()
+    for run in stale:
+        await db.execute(
+            "UPDATE scan_runs SET status = 'failed', completed_at = ?, error_message = ? WHERE id = ?",
+            (now, "Server restarted while task was running", run["id"]),
+        )
+    if stale:
+        await db.commit()
+    return stale
+
+
+RUN_TIMEOUT_MINUTES = 30
+
+
+async def _check_run_timeout(run: dict) -> dict:
+    """If a run is 'running' but started more than RUN_TIMEOUT_MINUTES ago, mark it failed."""
+    if run["status"] != "running":
+        return run
+    started = datetime.fromisoformat(run["started_at"])
+    elapsed = (datetime.now(timezone.utc) - started).total_seconds() / 60
+    if elapsed > RUN_TIMEOUT_MINUTES:
+        reason = f"Run timed out after {int(elapsed)} minutes"
+        await update_run(run["id"], status="failed", completed_at=_now(), error_message=reason)
+        run = {**run, "status": "failed", "completed_at": _now(), "error_message": reason}
+    return run
+
+
 async def get_run(run_id: str) -> Optional[dict]:
     db = await get_db()
     row = await db.execute_fetchall("SELECT * FROM scan_runs WHERE id = ?", (run_id,))
-    return dict(row[0]) if row else None
+    if not row:
+        return None
+    run = dict(row[0])
+    return await _check_run_timeout(run)
 
 
 async def get_task_runs(task_id: str, limit: int = 50) -> list[dict]:
@@ -174,7 +221,7 @@ async def get_task_runs(task_id: str, limit: int = 50) -> list[dict]:
         "SELECT * FROM scan_runs WHERE task_id = ? ORDER BY started_at DESC LIMIT ?",
         (task_id, limit),
     )
-    return [dict(r) for r in rows]
+    return [await _check_run_timeout(dict(r)) for r in rows]
 
 
 async def get_recent_runs(limit: int = 20) -> list[dict]:
@@ -182,7 +229,7 @@ async def get_recent_runs(limit: int = 20) -> list[dict]:
     rows = await db.execute_fetchall(
         "SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT ?", (limit,)
     )
-    return [dict(r) for r in rows]
+    return [await _check_run_timeout(dict(r)) for r in rows]
 
 
 # ── Findings ─────────────────────────────────────────────────────────────

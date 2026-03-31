@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,8 +15,11 @@ import {
   Clock,
   ArrowRight,
   ChevronRight,
+  StopCircle,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
+import { stopRun } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 import type { DashboardStats } from "@/lib/types";
 
 function StatCard({
@@ -49,6 +53,25 @@ function StatCard({
 }
 
 export default function Dashboard() {
+  const [stoppingRunId, setStoppingRunId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const handleStopRun = async (runId: string, e: React.MouseEvent) => {
+    e.preventDefault(); // Prevent navigation from the Link wrapper
+    e.stopPropagation();
+    setStoppingRunId(runId);
+    try {
+      await stopRun(runId);
+      toast({ title: "Run stopped", description: "The scan run has been stopped." });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+    } catch (err: any) {
+      toast({ title: "Failed to stop run", description: err.message, variant: "destructive" });
+    } finally {
+      setStoppingRunId(null);
+    }
+  };
+
   const { data, isLoading, error } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard"],
     select: (raw: any) => ({
@@ -203,11 +226,23 @@ export default function Dashboard() {
                         {run.findings_count > 0 && (
                           <span className="text-xs text-cyan-400 font-medium">{run.findings_count}</span>
                         )}
-                        <RunStatusBadge status={run.status} />
+                        <RunStatusBadge status={run.status} reason={run.error} />
+                        {run.status === "running" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                            disabled={stoppingRunId === run.id}
+                            onClick={(e) => handleStopRun(run.id, e)}
+                            title="Stop this run"
+                          >
+                            <StopCircle className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </div>
-                    {run.error && (
-                      <p className="text-[11px] text-red-400 mt-1 truncate">{run.error}</p>
+                    {(run.error || run.error_message) && (
+                      <p className="text-[11px] text-red-400 mt-1 truncate">{run.error || run.error_message}</p>
                     )}
                   </CardContent>
                 </Card>

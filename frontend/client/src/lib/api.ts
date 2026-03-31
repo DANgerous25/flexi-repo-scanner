@@ -96,6 +96,18 @@ export async function copyTask(id: string): Promise<Task> {
   return post<Task>(`/api/tasks/${encodeURIComponent(id)}/copy`);
 }
 
+// ── Runs ────────────────────────────────────────────────
+
+export async function cancelRun(runId: string): Promise<TaskRun> {
+  const raw = await post<any>(`/api/runs/${encodeURIComponent(runId)}/cancel`);
+  return normalizeRun(raw);
+}
+
+export async function stopRun(runId: string): Promise<TaskRun> {
+  const raw = await post<any>(`/api/runs/${encodeURIComponent(runId)}/stop`);
+  return normalizeRun(raw);
+}
+
 function normalizeRun(r: any): TaskRun {
   return {
     ...r,

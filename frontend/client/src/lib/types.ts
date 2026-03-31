@@ -89,7 +89,7 @@ export interface TaskRun {
   started_at: string;
   completed_at?: string;
   duration_seconds?: number;
-  status: "running" | "completed" | "failed" | "partial";
+  status: "running" | "completed" | "failed" | "cancelled" | "partial";
   findings_count: number;
   scan_mode: ScanMode;
   scan_type: ScanType;

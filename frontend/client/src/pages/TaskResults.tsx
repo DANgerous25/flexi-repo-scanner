@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useRoute, Link, useParams } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +24,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SeverityBadge, RunStatusBadge, ScanTypeBadge } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
-import { fetchTask, fetchTaskResults, fetchRunFindings, addToAllowlist, fetchFileContent } from "@/lib/api";
+import { fetchTask, fetchTaskResults, fetchRunFindings, addToAllowlist, fetchFileContent, stopRun } from "@/lib/api";
 import CodeViewer from "@/components/CodeViewer";
 import type { Task, TaskRun, Finding } from "@/lib/types";
 import {
@@ -39,6 +39,7 @@ import {
   ClipboardCopy,
   Check,
   ShieldOff,
+  StopCircle,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -160,7 +161,9 @@ export default function TaskResults() {
   const [codeViewerContent, setCodeViewerContent] = useState<string | null>(null);
   const [codeViewerLoading, setCodeViewerLoading] = useState(false);
   const [codeViewerError, setCodeViewerError] = useState<string | undefined>();
+  const [stopping, setStopping] = useState(false);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: task, isLoading: taskLoading } = useQuery<Task>({
     queryKey: [`/api/tasks/${taskId}`],
@@ -231,6 +234,30 @@ export default function TaskResults() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {selectedRun?.status === "running" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+              data-testid="button-stop-run"
+              disabled={stopping}
+              onClick={async () => {
+                setStopping(true);
+                try {
+                  await stopRun(selectedRun.id);
+                  toast({ title: "Run stopped", description: "The scan run has been stopped." });
+                  queryClient.invalidateQueries({ queryKey: [`/api/tasks/${taskId}/results`] });
+                } catch (err: any) {
+                  toast({ title: "Failed to stop run", description: err.message, variant: "destructive" });
+                } finally {
+                  setStopping(false);
+                }
+              }}
+            >
+              <StopCircle className="w-3.5 h-3.5" />
+              {stopping ? "Stopping…" : "Stop Run"}
+            </Button>
+          )}
           {selectedRun && findings.length > 0 && (
             <Button
               variant="outline"
@@ -332,7 +359,14 @@ export default function TaskResults() {
                     <span className="text-xs text-muted-foreground">{run.duration_seconds ? `${run.duration_seconds}s` : "—"}</span>
                   </TableCell>
                   <TableCell>
-                    <RunStatusBadge status={run.status} />
+                    <div className="space-y-0.5">
+                      <RunStatusBadge status={run.status} reason={run.error} />
+                      {run.error && (
+                        <p className="text-[10px] text-red-400/80 truncate max-w-[200px]" title={run.error}>
+                          {run.error}
+                        </p>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
                     {run.findings_count > 0 ? (

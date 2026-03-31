@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.api import benchmarks, connections, notifications, results, settings, tasks
+from backend.api import benchmarks, connections, notifications, results, runs, settings, tasks
 from backend.storage import config_loader, db
 from backend.tasks import scheduler
 
@@ -35,6 +35,16 @@ async def lifespan(app: FastAPI):
         logger.warning("Secrets vault not available: %s", exc)
     # Ensure database is initialised
     await db.get_db()
+    # Recover any runs left in 'running' state from a previous crash/restart
+    stale_runs = await db.recover_stale_runs()
+    if stale_runs:
+        for sr in stale_runs:
+            await db.upsert_task_state(sr["task_id"], status="failed")
+            logger.warning(
+                "Recovered stale run %s for task %s — marked as failed (server restart)",
+                sr["id"], sr["task_id"],
+            )
+        logger.info("Recovered %d stale run(s) from previous session", len(stale_runs))
     # Start scheduler
     app_settings = config_loader.load_settings()
     await scheduler.start_scheduler(app_settings)
@@ -64,6 +74,7 @@ app.add_middleware(
 
 # API routes
 app.include_router(tasks.router)
+app.include_router(runs.router)
 app.include_router(connections.router)
 app.include_router(results.router)
 app.include_router(benchmarks.router)

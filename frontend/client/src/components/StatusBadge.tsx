@@ -64,16 +64,17 @@ export function ScanTypeBadge({ type }: { type: string }) {
   );
 }
 
-export function RunStatusBadge({ status }: { status: string }) {
+export function RunStatusBadge({ status, reason }: { status: string; reason?: string }) {
   const config: Record<string, { label: string; className: string }> = {
     completed: { label: "Completed", className: "status-completed" },
     running: { label: "Running", className: "status-running" },
     failed: { label: "Failed", className: "status-failed" },
+    cancelled: { label: "Cancelled", className: "bg-orange-500/15 text-orange-400 border-orange-500/20" },
     partial: { label: "Partial", className: "status-partial" },
   };
   const c = config[status] || { label: status, className: "" };
   return (
-    <Badge variant="outline" className={`${c.className} text-xs font-medium border`}>
+    <Badge variant="outline" className={`${c.className} text-xs font-medium border`} title={reason}>
       {c.label}
     </Badge>
   );
