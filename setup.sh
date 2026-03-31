@@ -337,25 +337,24 @@ step "GitHub repository connections"
 mkdir -p config/tasks
 
 # Show existing connections if re-running
-EXISTING_CONNS=""
+EXISTING_CONNS=0
 if [[ -f "config/connections.yaml" ]]; then
-  EXISTING_CONNS=$(grep -c 'id:' config/connections.yaml 2>/dev/null | tr -d ' \n' || echo "0")
-  if [[ "$EXISTING_CONNS" != "0" ]]; then
-    info "${GREEN}Existing connections:${RESET}"
+  EXISTING_CONNS=$(grep -c 'id:' config/connections.yaml 2>/dev/null || true)
+  EXISTING_CONNS=$(echo "$EXISTING_CONNS" | tr -dc '0-9')
+  EXISTING_CONNS=${EXISTING_CONNS:-0}
+  if [[ $EXISTING_CONNS -gt 0 ]]; then
+    info "${GREEN}Existing connections ($EXISTING_CONNS):${RESET}"
     grep 'id:\|owner:\|repo:' config/connections.yaml | sed 's/^/    /'
     echo ""
   fi
 fi
 
-if [[ "$IS_RERUN" == "true" && "$EXISTING_CONNS" != "0" ]]; then
+SKIP_CONNECTIONS=false
+if [[ $EXISTING_CONNS -gt 0 ]]; then
   if ! ask_yn "Reconfigure connections? (Enter to keep existing)" "n"; then
     ok "Keeping $EXISTING_CONNS existing connection(s)"
     SKIP_CONNECTIONS=true
-  else
-    SKIP_CONNECTIONS=false
   fi
-else
-  SKIP_CONNECTIONS=false
 fi
 
 CONNECTIONS=""
@@ -668,7 +667,9 @@ fi
 step "Scan tasks"
 
 # Count existing tasks
-EXISTING_TASKS=$(ls config/tasks/*.yaml 2>/dev/null | wc -l | tr -d ' \n' || echo "0")
+EXISTING_TASKS=$(ls config/tasks/*.yaml 2>/dev/null | wc -l || true)
+EXISTING_TASKS=$(echo "$EXISTING_TASKS" | tr -dc '0-9')
+EXISTING_TASKS=${EXISTING_TASKS:-0}
 
 if [[ "$EXISTING_TASKS" -gt 0 ]]; then
   info "${GREEN}Existing tasks:${RESET}"
@@ -680,7 +681,9 @@ if [[ "$EXISTING_TASKS" -gt 0 ]]; then
 fi
 
 # Get connection count from connections.yaml
-CONN_COUNT_FILE=$(grep -c 'id:' config/connections.yaml 2>/dev/null | tr -d ' \n' || echo "0")
+CONN_COUNT_FILE=$(grep -c 'id:' config/connections.yaml 2>/dev/null || true)
+CONN_COUNT_FILE=$(echo "$CONN_COUNT_FILE" | tr -dc '0-9')
+CONN_COUNT_FILE=${CONN_COUNT_FILE:-0}
 
 SHOW_TASK_MENU=false
 
