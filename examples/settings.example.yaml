@@ -3,35 +3,28 @@ server:
   port: 8400
 
 smtp:
-  host: smtp.gmail.com
+  host: "smtp.gmail.com"
   port: 587
   tls: true
-  username: "${SMTP_USER}"
-  password: "${SMTP_PASS}"
+  username: "${SMTP_USERNAME}"
+  password: "${SMTP_PASSWORD}"
   from_address: "scanner@yourdomain.com"
   from_name: "Flexi Repo Scanner"
 
 llm:
+  # Fallback order: tried in sequence when a provider call fails.
+  # Put your preferred/cheapest provider first.
+  fallback_order:
+    - ollama      # Local models — free, no API key needed
+    - groq        # Fast inference, generous free tier
+    - deepseek    # Very cheap
+    - openai      # Reliable, wide model range
+    - anthropic   # Strong code analysis
+    - mistral     # European alternative
+    - xai         # Grok models
+
   providers:
-    anthropic:
-      api_key: "${ANTHROPIC_API_KEY}"
-      models:
-        - id: "anthropic/claude-sonnet-4-6"
-          name: "Claude Sonnet 4.5"
-        - id: "anthropic/claude-haiku-4-5"
-          name: "Claude Haiku 4.5"
-    openai:
-      api_key: "${OPENAI_API_KEY}"
-      models:
-        - id: "openai/gpt-4.1-mini"
-          name: "GPT-4.1 Mini"
-        - id: "openai/gpt-4.1"
-          name: "GPT-4.1"
-    groq:
-      api_key: "${GROQ_API_KEY}"
-      models:
-        - id: "groq/llama-3.3-70b-versatile"
-          name: "Llama 3.3 70B"
+    # ── Local / self-hosted ──
     ollama:
       base_url: "http://localhost:11434"
       models:
@@ -39,6 +32,80 @@ llm:
           name: "Qwen 3 14B (local)"
         - id: "ollama/llama3.1:8b"
           name: "Llama 3.1 8B (local)"
+        - id: "ollama/codellama:13b"
+          name: "Code Llama 13B (local)"
+        - id: "ollama/deepseek-coder-v2:16b"
+          name: "DeepSeek Coder V2 16B (local)"
+
+    # ── Cloud providers ──
+    anthropic:
+      api_key: "${ANTHROPIC_API_KEY}"
+      models:
+        - id: "anthropic/claude-sonnet-4-6"
+          name: "Claude Sonnet 4"
+        - id: "anthropic/claude-haiku-4-5"
+          name: "Claude Haiku 4.5"
+
+    openai:
+      api_key: "${OPENAI_API_KEY}"
+      models:
+        - id: "openai/gpt-4.1-mini"
+          name: "GPT-4.1 Mini"
+        - id: "openai/gpt-4.1"
+          name: "GPT-4.1"
+        - id: "openai/gpt-4.1-nano"
+          name: "GPT-4.1 Nano"
+
+    groq:
+      api_key: "${GROQ_API_KEY}"
+      models:
+        - id: "groq/llama-3.3-70b-versatile"
+          name: "Llama 3.3 70B (Groq)"
+        - id: "groq/llama-3.1-8b-instant"
+          name: "Llama 3.1 8B (Groq)"
+
+    deepseek:
+      api_key: "${DEEPSEEK_API_KEY}"
+      models:
+        - id: "deepseek/deepseek-chat"
+          name: "DeepSeek Chat"
+        - id: "deepseek/deepseek-reasoner"
+          name: "DeepSeek Reasoner"
+
+    mistral:
+      api_key: "${MISTRAL_API_KEY}"
+      models:
+        - id: "mistral/mistral-large-latest"
+          name: "Mistral Large"
+        - id: "mistral/mistral-small-latest"
+          name: "Mistral Small"
+
+    xai:
+      api_key: "${XAI_API_KEY}"
+      models:
+        - id: "xai/grok-4.1-fast"
+          name: "Grok 4.1 Fast"
+
+    # ── Aggregators ──
+    openrouter:
+      api_key: "${OPENROUTER_API_KEY}"
+      models:
+        - id: "openrouter/auto"
+          name: "OpenRouter Auto"
+
+    together_ai:
+      api_key: "${TOGETHERAI_API_KEY}"
+      enabled: false
+      models:
+        - id: "together_ai/meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo"
+          name: "Llama 3.1 70B (Together)"
+
+    fireworks_ai:
+      api_key: "${FIREWORKS_AI_API_KEY}"
+      enabled: false
+      models:
+        - id: "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct"
+          name: "Llama 3.1 70B (Fireworks)"
 
 retention:
   results_days: 30

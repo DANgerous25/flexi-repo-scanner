@@ -58,6 +58,13 @@ class LlmProviderConfig(BaseModel):
     api_key: str = ""
     base_url: str = ""
     models: list[LlmModelConfig] = Field(default_factory=list)
+    enabled: bool = True
+
+
+class LlmConfig(BaseModel):
+    """Top-level LLM configuration with fallback ordering."""
+    fallback_order: list[str] = Field(default_factory=list)
+    providers: dict[str, LlmProviderConfig] = Field(default_factory=dict)
 
 
 class RetentionConfig(BaseModel):
@@ -68,7 +75,7 @@ class RetentionConfig(BaseModel):
 class AppSettings(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     smtp: SmtpConfig = Field(default_factory=SmtpConfig)
-    llm: dict[str, LlmProviderConfig] = Field(default_factory=dict)
+    llm: LlmConfig = Field(default_factory=LlmConfig)
     retention: RetentionConfig = Field(default_factory=RetentionConfig)
 
 

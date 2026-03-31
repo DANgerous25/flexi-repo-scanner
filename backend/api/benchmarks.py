@@ -107,7 +107,10 @@ async def run_benchmark(req: BenchmarkRequest):
                         max_files_per_run=max_files,
                     )
 
-                    result = await review_files(file_contents, llm_config, settings, task.scan.llm.focus)
+                    result = await review_files(
+                        file_contents, llm_config, settings,
+                        task.scan.llm.focus, use_fallback=False,
+                    )
 
                     cost = estimate_cost(
                         model_id,

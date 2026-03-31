@@ -38,17 +38,13 @@ def _save_yaml(path: Path, data: dict) -> None:
 
 def load_settings() -> AppSettings:
     raw = _load_yaml(CONFIG_DIR / "settings.yaml")
-    # Flatten llm.providers to just llm dict
-    if "llm" in raw and "providers" in raw["llm"]:
-        raw["llm"] = raw["llm"]["providers"]
+    # The YAML structure is: llm.fallback_order + llm.providers
+    # which maps directly to the LlmConfig model — no flattening needed.
     return AppSettings(**raw)
 
 
 def save_settings(settings: AppSettings) -> None:
     data = settings.model_dump()
-    # Re-nest llm providers
-    llm_data = data.pop("llm", {})
-    data["llm"] = {"providers": llm_data}
     _save_yaml(CONFIG_DIR / "settings.yaml", data)
 
 

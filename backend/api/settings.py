@@ -22,9 +22,10 @@ async def get_settings():
     if data.get("smtp", {}).get("password"):
         data["smtp"]["password"] = "***"
 
-    # Mask API keys
-    for provider, cfg in data.get("llm", {}).items():
-        if cfg.get("api_key"):
+    # Mask API keys in llm.providers
+    providers = data.get("llm", {}).get("providers", {})
+    for provider, cfg in providers.items():
+        if isinstance(cfg, dict) and cfg.get("api_key"):
             key = cfg["api_key"]
             cfg["api_key"] = "***" + key[-4:] if len(key) > 4 else "***"
 
@@ -42,10 +43,10 @@ async def update_settings(data: dict):
         if data["smtp"].get("password") == "***":
             data["smtp"]["password"] = current_data["smtp"]["password"]
 
-    if "llm" in data:
-        for provider, cfg in data["llm"].items():
+    if "llm" in data and "providers" in data.get("llm", {}):
+        for provider, cfg in data["llm"]["providers"].items():
             if isinstance(cfg, dict) and cfg.get("api_key", "").startswith("***"):
-                existing = current_data.get("llm", {}).get(provider, {})
+                existing = current_data.get("llm", {}).get("providers", {}).get(provider, {})
                 cfg["api_key"] = existing.get("api_key", "")
 
     # Apply updates

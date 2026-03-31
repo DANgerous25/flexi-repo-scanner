@@ -153,10 +153,12 @@ async def review_files(
     llm_config: LlmScanConfig,
     settings: AppSettings,
     focus: list[str] | None = None,
+    use_fallback: bool = True,
 ) -> dict[str, Any]:
     """Run LLM review on a batch of files.
 
     Returns dict with: findings, input_tokens, output_tokens, cost, time_seconds
+    Set use_fallback=False for benchmarking (tests a single model without fallback).
     """
     # Build system prompt
     system_prompt = ""
@@ -183,8 +185,11 @@ async def review_files(
         {"role": "user", "content": f"Review the following files:\n{file_content}"},
     ]
 
-    model = llm_config.model or "anthropic/claude-sonnet-4-6"
-    result = await llm.complete(
+    # If no model specified in task config, use a generic placeholder.
+    # The router's fallback logic will resolve to the first available provider.
+    model = llm_config.model or "auto"
+    complete_fn = llm.complete if use_fallback else llm.complete_single
+    result = await complete_fn(
         model=model,
         messages=messages,
         settings=settings,
