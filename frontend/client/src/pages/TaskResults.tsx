@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SeverityBadge, RunStatusBadge, ScanTypeBadge } from "@/components/StatusBadge";
+import { useToast } from "@/hooks/use-toast";
 import { fetchTask, fetchTaskResults, fetchRunFindings } from "@/lib/api";
 import type { Task, TaskRun, Finding } from "@/lib/types";
 import {
@@ -32,6 +33,8 @@ import {
   FileSearch,
   ChevronRight,
   AlertTriangle,
+  ClipboardCopy,
+  Check,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -47,11 +50,106 @@ function safeRelative(dateStr: string | undefined): string {
   return isNaN(d.getTime()) ? "" : formatDistanceToNow(d, { addSuffix: true });
 }
 
+function formatFindingsForLLM(task: Task, run: TaskRun, findings: Finding[]): string {
+  const lines: string[] = [];
+
+  lines.push("# Scan Findings — Review & Fix Suggestions Needed");
+  lines.push("");
+  lines.push("## Instructions");
+  lines.push("");
+  lines.push("Below are automated scan findings from a repository code scanner. For each finding:");
+  lines.push("");
+  lines.push("1. **Evaluate** whether it is a true positive or a false positive (explain your reasoning)");
+  lines.push("2. **Classify** the risk level: `critical` / `high` / `medium` / `low` / `false-positive`");
+  lines.push("3. **Suggest a fix** with the exact code change needed (show before/after), or explain why no fix is needed");
+  lines.push("4. **Do NOT apply any changes** — present your analysis and wait for approval before proceeding");
+  lines.push("");
+  lines.push("## Context");
+  lines.push("");
+  lines.push(`- **Task:** ${task.name}`);
+  lines.push(`- **Repository:** ${task.connection}`);
+  lines.push(`- **Scan type:** ${task.scan?.type ?? "pattern"}`);
+  lines.push(`- **Scan mode:** ${run.scan_mode ?? "full"}`);
+  lines.push(`- **Run date:** ${run.started_at ?? "unknown"}`);
+  lines.push(`- **Total findings:** ${findings.length}`);
+  lines.push("");
+
+  // Group by category
+  const byCategory: Record<string, Finding[]> = {};
+  findings.forEach((f) => {
+    const cat = f.category || "Uncategorised";
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(f);
+  });
+
+  lines.push("## Findings");
+  lines.push("");
+
+  let idx = 1;
+  for (const [category, items] of Object.entries(byCategory).sort()) {
+    lines.push(`### ${category} (${items.length})`);
+    lines.push("");
+
+    for (const f of items) {
+      lines.push(`#### Finding ${idx}`);
+      lines.push("");
+      lines.push(`| Field | Value |`);
+      lines.push(`|-------|-------|`);
+      lines.push(`| **File** | \`${f.file}\` |`);
+      lines.push(`| **Line** | ${f.line ?? "—"} |`);
+      lines.push(`| **Severity** | ${f.severity} |`);
+      lines.push(`| **Rule** | ${f.rule_name || f.rule_id || "—"} |`);
+      if (f.matched_text) {
+        lines.push(`| **Matched text** | \`${f.matched_text}\` |`);
+      }
+      if (f.context) {
+        lines.push("");
+        lines.push("<details><summary>Context</summary>");
+        lines.push("");
+        lines.push("```");
+        lines.push(f.context);
+        lines.push("```");
+        lines.push("");
+        lines.push("</details>");
+      }
+      lines.push("");
+      idx++;
+    }
+  }
+
+  lines.push("---");
+  lines.push("");
+  lines.push("## Expected Output Format");
+  lines.push("");
+  lines.push("For each finding, respond with:");
+  lines.push("");
+  lines.push("```");
+  lines.push("### Finding N — [true-positive | false-positive]");
+  lines.push("**Risk:** critical / high / medium / low / false-positive");
+  lines.push("**Reasoning:** Why this is or isn't an issue.");
+  lines.push("**Suggested fix:**");
+  lines.push("- File: `path/to/file`");
+  lines.push("- Before: `matched text or line`");
+  lines.push("- After: `replacement text or line`");
+  lines.push("```");
+  lines.push("");
+  lines.push("After listing all evaluations, provide a **Summary** with:");
+  lines.push("- Count of true positives vs false positives");
+  lines.push("- Prioritised list of fixes (critical first)");
+  lines.push("- Any patterns suggesting rule adjustments");
+  lines.push("");
+  lines.push("**Wait for my approval before applying any changes.**");
+
+  return lines.join("\n");
+}
+
 export default function TaskResults() {
   const params = useParams();
   const taskId = params?.id ?? null;
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<"none" | "category" | "severity">("none");
+  const [copied, setCopied] = useState(false);
+  const { toast } = useToast();
 
   const { data: task, isLoading: taskLoading } = useQuery<Task>({
     queryKey: [`/api/tasks/${taskId}`],
@@ -122,6 +220,31 @@ export default function TaskResults() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {selectedRun && findings.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className={`h-8 text-xs gap-1.5 transition-colors ${
+                copied ? "border-emerald-500/50 text-emerald-400" : ""
+              }`}
+              data-testid="button-copy-llm"
+              onClick={() => {
+                const md = formatFindingsForLLM(task, selectedRun, findings);
+                navigator.clipboard.writeText(md).then(() => {
+                  setCopied(true);
+                  toast({ title: "Copied to clipboard", description: `${findings.length} findings formatted for LLM review` });
+                  setTimeout(() => setCopied(false), 2500);
+                });
+              }}
+            >
+              {copied ? (
+                <Check className="w-3.5 h-3.5" />
+              ) : (
+                <ClipboardCopy className="w-3.5 h-3.5" />
+              )}
+              {copied ? "Copied" : "Copy for LLM"}
+            </Button>
+          )}
           <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" data-testid="button-export-json">
             <FileJson className="w-3.5 h-3.5" /> JSON
           </Button>
