@@ -1,0 +1,45 @@
+server:
+  host: "0.0.0.0"
+  port: 8400
+
+smtp:
+  host: smtp.gmail.com
+  port: 587
+  tls: true
+  username: "${SMTP_USER}"
+  password: "${SMTP_PASS}"
+  from_address: "scanner@yourdomain.com"
+  from_name: "Flexi Repo Scanner"
+
+llm:
+  providers:
+    anthropic:
+      api_key: "${ANTHROPIC_API_KEY}"
+      models:
+        - id: "anthropic/claude-sonnet-4-6"
+          name: "Claude Sonnet 4.5"
+        - id: "anthropic/claude-haiku-4-5"
+          name: "Claude Haiku 4.5"
+    openai:
+      api_key: "${OPENAI_API_KEY}"
+      models:
+        - id: "openai/gpt-4.1-mini"
+          name: "GPT-4.1 Mini"
+        - id: "openai/gpt-4.1"
+          name: "GPT-4.1"
+    groq:
+      api_key: "${GROQ_API_KEY}"
+      models:
+        - id: "groq/llama-3.3-70b-versatile"
+          name: "Llama 3.3 70B"
+    ollama:
+      base_url: "http://localhost:11434"
+      models:
+        - id: "ollama/qwen3:14b"
+          name: "Qwen 3 14B (local)"
+        - id: "ollama/llama3.1:8b"
+          name: "Llama 3.1 8B (local)"
+
+retention:
+  results_days: 30
+  max_days: 0

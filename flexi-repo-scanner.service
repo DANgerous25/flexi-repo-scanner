@@ -1,0 +1,19 @@
+[Unit]
+Description=Flexi Repo Scanner
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/flexi-repo-scanner
+ExecStart=/opt/flexi-repo-scanner/venv/bin/python -m backend.main
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment file for secrets (optional)
+EnvironmentFile=-/opt/flexi-repo-scanner/.env
+
+[Install]
+WantedBy=multi-user.target

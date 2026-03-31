@@ -1,0 +1,21 @@
+id: "doc-coverage"
+name: "Documentation Coverage"
+description: "Detect missing docstrings and documentation gaps"
+active: false
+connection: "example-repo"
+schedule:
+  cron: "0 9 * * 1"
+  timezone: "UTC"
+scan:
+  mode: "full"
+  type: "doc-coverage"
+  paths:
+    include: ["**/*.py", "**/*.ts", "**/*.tsx"]
+    exclude: ["node_modules/", "dist/", "*.test.*", "__init__.py"]
+  allowlist: []
+actions:
+  - type: "generate-fix-prompt"
+    template: "fix-instructions"
+    output: "file"
+  - type: "in-app-notify"
+    trigger: "findings"

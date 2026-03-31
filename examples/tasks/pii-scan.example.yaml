@@ -1,0 +1,46 @@
+id: "pii-scan"
+name: "PII & Sensitive Data Scanner"
+description: "Detect personal information, credentials, and confidential references"
+active: true
+connection: "example-repo"
+schedule:
+  cron: "0 9 * * *"
+  timezone: "UTC"
+scan:
+  mode: "full"
+  type: "pattern"
+  paths:
+    include: ["**/*"]
+    exclude: ["node_modules/", "*.lock", "dist/", "build/", "*.min.js"]
+  rules:
+    - id: "email-address"
+      name: "Email Address"
+      pattern: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+      severity: "high"
+    - id: "phone-number"
+      name: "Phone Number"
+      pattern: '[\+]?[(]?[0-9]{1,4}[)]?[-\s\./0-9]{7,}'
+      severity: "medium"
+    - id: "hardcoded-key"
+      name: "Hardcoded API Key/Secret"
+      pattern: '(?:api[_-]?key|api[_-]?secret|access[_-]?token)\s*[=:]\s*[''"][A-Za-z0-9+/=_-]{20,}[''"]'
+      severity: "critical"
+    - id: "private-key"
+      name: "Private Key Block"
+      pattern: '-----BEGIN (?:RSA |EC )?PRIVATE KEY-----'
+      severity: "critical"
+    - id: "ai-authorship"
+      name: "AI Tool Attribution"
+      pattern: '\b(claude code|vibe cod(?:e|ing)|copilot generated|ai[\s-]?generated|built with (?:claude|gpt|chatgpt))\b'
+      case_sensitive: false
+      severity: "high"
+  allowlist: []
+  context_filters:
+    - type: "llm-provider-usage"
+      enabled: true
+actions:
+  - type: "email-report"
+    recipients: ["your-email@example.com"]
+    trigger: "findings"
+  - type: "in-app-notify"
+    trigger: "findings"

@@ -1,0 +1,26 @@
+id: "code-quality"
+name: "Code Quality Review"
+description: "LLM-powered code quality assessment"
+active: false
+connection: "example-repo"
+schedule:
+  cron: "0 10 * * 5"
+  timezone: "UTC"
+scan:
+  mode: "diff"
+  type: "llm-review"
+  paths:
+    include: ["**/*.py", "**/*.ts", "**/*.tsx"]
+    exclude: ["node_modules/", "dist/", "*.test.*", "*.spec.*"]
+  llm:
+    model: "anthropic/claude-sonnet-4-6"
+    prompt_template: "code-quality"
+    focus: ["complexity", "duplication", "error-handling"]
+    max_files_per_run: 40
+  allowlist: []
+actions:
+  - type: "generate-fix-prompt"
+    template: "fix-instructions"
+    output: "file"
+  - type: "in-app-notify"
+    trigger: "findings"

@@ -1,0 +1,29 @@
+id: "code-review"
+name: "Weekly Code Review"
+description: "LLM-powered review of recently changed files"
+active: true
+connection: "example-repo"
+schedule:
+  cron: "0 10 * * 1"
+  timezone: "UTC"
+scan:
+  mode: "diff"
+  type: "llm-review"
+  paths:
+    include: ["**/*.py", "**/*.ts", "**/*.tsx"]
+    exclude: ["**/test_*", "**/*.test.*", "node_modules/"]
+  llm:
+    model: "anthropic/claude-sonnet-4-6"
+    prompt_template: "code-review"
+    focus: ["logic", "edge-cases", "error-handling", "performance"]
+    max_files_per_run: 30
+  allowlist: []
+actions:
+  - type: "generate-fix-prompt"
+    template: "fix-instructions"
+    output: "file"
+  - type: "email-report"
+    recipients: ["your-email@example.com"]
+    trigger: "always"
+  - type: "in-app-notify"
+    trigger: "findings"
