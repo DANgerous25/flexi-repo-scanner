@@ -113,44 +113,174 @@ else
 fi
 echo ""
 
-# ─── Step 1: Check Prerequisites ─────────────────────────────────────────
+# ─── Step 1: Check & Install Prerequisites ──────────────────────────────
 
 step "Checking prerequisites"
+
+# Detect OS / package manager
+PKG_MGR=""
+if command -v apt-get &>/dev/null; then
+  PKG_MGR="apt"
+elif command -v dnf &>/dev/null; then
+  PKG_MGR="dnf"
+elif command -v yum &>/dev/null; then
+  PKG_MGR="yum"
+elif command -v pacman &>/dev/null; then
+  PKG_MGR="pacman"
+elif command -v brew &>/dev/null; then
+  PKG_MGR="brew"
+fi
+
+install_pkg() {
+  local name="$1"
+  local pkg_apt="${2:-$1}"
+  local pkg_brew="${3:-$1}"
+  local pkg_dnf="${4:-$1}"
+  local pkg_pacman="${5:-$1}"
+
+  info "${BOLD}${name}${RESET} is required but not installed."
+
+  case "$PKG_MGR" in
+    apt)
+      if ask_yn "Install via apt? (sudo apt-get install $pkg_apt)" "y"; then
+        sudo apt-get update -qq && sudo apt-get install -y -qq "$pkg_apt"
+        return $?
+      fi
+      ;;
+    dnf)
+      if ask_yn "Install via dnf? (sudo dnf install $pkg_dnf)" "y"; then
+        sudo dnf install -y "$pkg_dnf"
+        return $?
+      fi
+      ;;
+    yum)
+      if ask_yn "Install via yum? (sudo yum install $pkg_dnf)" "y"; then
+        sudo yum install -y "$pkg_dnf"
+        return $?
+      fi
+      ;;
+    pacman)
+      if ask_yn "Install via pacman? (sudo pacman -S $pkg_pacman)" "y"; then
+        sudo pacman -S --noconfirm "$pkg_pacman"
+        return $?
+      fi
+      ;;
+    brew)
+      if ask_yn "Install via Homebrew? (brew install $pkg_brew)" "y"; then
+        brew install "$pkg_brew"
+        return $?
+      fi
+      ;;
+    *)
+      fail "No supported package manager found."
+      ;;
+  esac
+  return 1
+}
+
+# Helper: install Node.js via NodeSource if apt (gets current LTS instead of old distro version)
+install_node_apt() {
+  info "${BOLD}Node.js${RESET} is required but not installed."
+  echo ""
+  info "  1) Install via NodeSource (recommended — gets Node 20 LTS)"
+  info "  2) Install distro package (nodejs — may be outdated)"
+  info "  3) Skip — I'll install it myself"
+  echo -ne "  Choose ${DIM}[1-3]${RESET}: "
+  read -r node_choice
+
+  case "$node_choice" in
+    1)
+      info "Installing Node.js 20 LTS via NodeSource..."
+      if ! command -v curl &>/dev/null; then
+        sudo apt-get update -qq && sudo apt-get install -y -qq curl
+      fi
+      curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - 2>&1 | tail -3
+      sudo apt-get install -y -qq nodejs
+      return $?
+      ;;
+    2)
+      sudo apt-get update -qq && sudo apt-get install -y -qq nodejs npm
+      return $?
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# Git (required — you wouldn't be here without it, but check anyway)
+if command -v git &>/dev/null; then
+  ok "Git $(git --version | awk '{print $3}')"
+else
+  if ! install_pkg "Git" "git" "git" "git" "git"; then
+    fail "Git is required. Install it and re-run setup."
+    exit 1
+  fi
+  ok "Git installed"
+fi
 
 # Python
 if command -v python3 &>/dev/null; then
   PY_VER=$(python3 --version 2>&1 | awk '{print $2}')
   ok "Python $PY_VER"
 else
-  fail "Python 3 not found — install from https://python.org"
-  exit 1
+  if ! install_pkg "Python 3" "python3 python3-venv python3-pip" "python3" "python3" "python"; then
+    fail "Python 3 is required. Install it and re-run setup."
+    exit 1
+  fi
+  ok "Python $(python3 --version 2>&1 | awk '{print $2}') installed"
 fi
 
-# Node
+# Ensure python3-venv is available (common issue on Ubuntu/Debian)
+if [[ "$PKG_MGR" == "apt" ]] && ! python3 -m venv --help &>/dev/null; then
+  info "Installing python3-venv (needed for virtual environment)..."
+  sudo apt-get install -y -qq python3-venv
+fi
+
+# Node.js
 if command -v node &>/dev/null; then
   NODE_VER=$(node --version 2>&1)
   ok "Node.js $NODE_VER"
 else
-  fail "Node.js not found — install from https://nodejs.org"
-  exit 1
+  INSTALLED_NODE=false
+  if [[ "$PKG_MGR" == "apt" ]]; then
+    if install_node_apt; then
+      INSTALLED_NODE=true
+    fi
+  elif [[ -n "$PKG_MGR" ]]; then
+    if install_pkg "Node.js" "nodejs" "node" "nodejs" "nodejs"; then
+      INSTALLED_NODE=true
+    fi
+  fi
+
+  if [[ "$INSTALLED_NODE" == "true" ]] && command -v node &>/dev/null; then
+    ok "Node.js $(node --version) installed"
+  else
+    fail "Node.js is required for the frontend. Install from https://nodejs.org and re-run setup."
+    exit 1
+  fi
 fi
 
-# Ollama
+# Ollama (optional)
 if command -v ollama &>/dev/null; then
   ok "Ollama installed"
   OLLAMA_INSTALLED=true
 else
   warn "Ollama not found — LLM features will need cloud API keys"
-  info "Install later: brew install ollama (macOS) or https://ollama.ai"
-  OLLAMA_INSTALLED=false
-fi
-
-# Git
-if command -v git &>/dev/null; then
-  ok "Git $(git --version | awk '{print $3}')"
-else
-  fail "Git not found"
-  exit 1
+  if ask_yn "Install Ollama now? (for local LLM inference)" "n"; then
+    info "Installing Ollama..."
+    curl -fsSL https://ollama.ai/install.sh | sh 2>&1 | tail -3
+    if command -v ollama &>/dev/null; then
+      ok "Ollama installed"
+      OLLAMA_INSTALLED=true
+    else
+      warn "Ollama install may need a shell restart — skipping for now"
+      OLLAMA_INSTALLED=false
+    fi
+  else
+    info "${DIM}Install later: curl -fsSL https://ollama.ai/install.sh | sh${RESET}"
+    OLLAMA_INSTALLED=false
+  fi
 fi
 
 # ─── Step 2: Install Dependencies ────────────────────────────────────────
