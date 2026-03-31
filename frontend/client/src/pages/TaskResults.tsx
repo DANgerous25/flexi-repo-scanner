@@ -35,6 +35,18 @@ import {
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 
+function safeFormat(dateStr: string | undefined, fmt: string): string {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? "—" : format(d, fmt);
+}
+
+function safeRelative(dateStr: string | undefined): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? "" : formatDistanceToNow(d, { addSuffix: true });
+}
+
 export default function TaskResults() {
   const params = useParams();
   const taskId = params?.id ?? null;
@@ -151,8 +163,8 @@ export default function TaskResults() {
                   data-testid={`row-run-${run.id}`}
                 >
                   <TableCell>
-                    <div className="text-sm text-foreground">{format(new Date(run.started_at), "MMM d, HH:mm")}</div>
-                    <div className="text-[11px] text-muted-foreground">{formatDistanceToNow(new Date(run.started_at), { addSuffix: true })}</div>
+                    <div className="text-sm text-foreground">{safeFormat(run.started_at, "MMM d, HH:mm")}</div>
+                    <div className="text-[11px] text-muted-foreground">{safeRelative(run.started_at)}</div>
                   </TableCell>
                   <TableCell>
                     <span className="text-xs text-muted-foreground">{run.duration_seconds ? `${run.duration_seconds}s` : "—"}</span>
@@ -187,7 +199,7 @@ export default function TaskResults() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <CardTitle className="text-sm font-semibold">
-                  Findings — {format(new Date(selectedRun.started_at), "MMM d, HH:mm")}
+                  Findings — {safeFormat(selectedRun.started_at, "MMM d, HH:mm")}
                 </CardTitle>
                 <Badge variant="outline" className="text-xs">{findings.length} findings</Badge>
               </div>

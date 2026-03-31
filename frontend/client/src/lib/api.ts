@@ -96,8 +96,39 @@ export async function copyTask(id: string): Promise<Task> {
   return post<Task>(`/api/tasks/${encodeURIComponent(id)}/copy`);
 }
 
+function normalizeRun(r: any): TaskRun {
+  return {
+    ...r,
+    findings_count: r.findings_count ?? r.finding_count ?? 0,
+    error: r.error ?? r.error_message ?? undefined,
+    duration_seconds: r.duration_seconds ?? (
+      r.started_at && r.completed_at
+        ? Math.round((new Date(r.completed_at).getTime() - new Date(r.started_at).getTime()) / 1000)
+        : undefined
+    ),
+    task_name: r.task_name ?? r.task_id ?? "Unknown",
+    scan_mode: r.scan_mode ?? "full",
+    scan_type: r.scan_type ?? "pattern",
+  };
+}
+
+function normalizeFinding(f: any): Finding {
+  return {
+    ...f,
+    file: f.file ?? f.file_path ?? "",
+    line: f.line ?? f.line_number ?? undefined,
+    rule_name: f.rule_name ?? f.description ?? f.rule_id ?? "",
+    matched_text: f.matched_text ?? "",
+    category: f.category ?? "unknown",
+    severity: f.severity ?? "medium",
+    rule_id: f.rule_id ?? "",
+    run_id: f.run_id ?? "",
+  };
+}
+
 export async function fetchTaskResults(taskId: string): Promise<TaskRun[]> {
-  return get<TaskRun[]>(`/api/tasks/${encodeURIComponent(taskId)}/results`);
+  const raw = await get<any[]>(`/api/tasks/${encodeURIComponent(taskId)}/results`);
+  return raw.map(normalizeRun);
 }
 
 // ── Connections ─────────────────────────────────────────
@@ -145,11 +176,15 @@ export async function testConnection(id: string): Promise<{ success: boolean; me
 // ── Results ─────────────────────────────────────────────
 
 export async function fetchResults(): Promise<TaskRun[]> {
-  return get<TaskRun[]>("/api/results");
+  const raw = await get<any[]>("/api/results");
+  return (raw ?? []).map(normalizeRun);
 }
 
 export async function fetchRunFindings(runId: string): Promise<Finding[]> {
-  return get<Finding[]>(`/api/results/${encodeURIComponent(runId)}/findings`);
+  const raw = await get<any>(`/api/results/${encodeURIComponent(runId)}/findings`);
+  // Backend returns { run, findings, summary } — extract findings array
+  const list = Array.isArray(raw) ? raw : (raw.findings ?? []);
+  return list.map(normalizeFinding);
 }
 
 // ── Settings ────────────────────────────────────────────
