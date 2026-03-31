@@ -85,6 +85,13 @@ async def dashboard():
     recent = await db.get_recent_runs(20)
     unread = await db.get_unread_count()
 
+    # Build task name lookup
+    task_names = {t.id: t.name for t in all_tasks}
+
+    # Enrich recent runs with task names
+    for run in recent:
+        run["task_name"] = task_names.get(run.get("task_id", ""), run.get("task_id", "Unknown"))
+
     # Count by state
     active = sum(1 for t in all_tasks if t.active)
     total_findings_today = 0

@@ -61,12 +61,25 @@ export default function Dashboard() {
         name: t.name,
         state: t.status ?? t.state ?? "inactive",
         scan_type: t.type ?? t.scan_type ?? "pattern",
-        last_run: t.last_run,
+        // last_run from backend is the full run object — extract the timestamp
+        last_run: typeof t.last_run === "object" && t.last_run
+          ? (t.last_run.started_at ?? t.last_run.completed_at)
+          : t.last_run,
         next_run: t.next_run_at ?? t.next_run,
         findings_count: t.finding_count ?? t.findings_count ?? 0,
         connection: t.connection,
       })),
-      recent_runs: raw.recent_runs ?? [],
+      recent_runs: (raw.recent_runs ?? []).map((r: any) => ({
+        ...r,
+        // DB has no task_name column — use task_id as fallback
+        task_name: r.task_name ?? r.task_id ?? "Unknown",
+        findings_count: r.finding_count ?? r.findings_count ?? 0,
+        duration_seconds: r.duration_seconds ?? (
+          r.started_at && r.completed_at
+            ? Math.round((new Date(r.completed_at).getTime() - new Date(r.started_at).getTime()) / 1000)
+            : undefined
+        ),
+      })),
       failed_tasks: raw.stats?.failed_tasks ?? raw.failed_tasks ?? [],
     }),
   });
@@ -152,10 +165,10 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
-                    {task.last_run && (
+                    {task.last_run && !isNaN(new Date(task.last_run).getTime()) && (
                       <span>Last: {formatDistanceToNow(new Date(task.last_run), { addSuffix: true })}</span>
                     )}
-                    {task.next_run && (
+                    {task.next_run && !isNaN(new Date(task.next_run).getTime()) && (
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         Next: {formatDistanceToNow(new Date(task.next_run), { addSuffix: true })}
@@ -180,8 +193,10 @@ export default function Dashboard() {
                       <div className="min-w-0">
                         <p className="text-sm text-foreground font-medium truncate">{run.task_name}</p>
                         <p className="text-[11px] text-muted-foreground mt-0.5">
-                          {formatDistanceToNow(new Date(run.started_at), { addSuffix: true })}
-                          {run.duration_seconds && ` · ${run.duration_seconds}s`}
+                          {run.started_at && !isNaN(new Date(run.started_at).getTime())
+                            ? formatDistanceToNow(new Date(run.started_at), { addSuffix: true })
+                            : "Unknown"}
+                          {run.duration_seconds != null && ` · ${run.duration_seconds}s`}
                         </p>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
