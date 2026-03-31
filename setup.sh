@@ -3,6 +3,7 @@ set -euo pipefail
 
 # ─── Flexi Repo Scanner — Interactive Setup ──────────────────────────────
 # Walks you through everything: deps, config, API keys, first run.
+# Safe to re-run — detects existing config and only updates what you change.
 # No manual file editing required.
 
 BOLD='\033[1m'
@@ -65,6 +66,16 @@ ask_yn() {
   [[ "${input,,}" == "y" || "${input,,}" == "yes" ]]
 }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# ─── Detect re-run ───────────────────────────────────────────────────────
+
+IS_RERUN=false
+if [[ -f "config/settings.yaml" || -f "data/secrets.enc" ]]; then
+  IS_RERUN=true
+fi
+
 # ─── Header ──────────────────────────────────────────────────────────────
 
 echo ""
@@ -72,8 +83,34 @@ echo -e "${BOLD}╔════════════════════�
 echo -e "${BOLD}║       Flexi Repo Scanner — Setup Wizard         ║${RESET}"
 echo -e "${BOLD}╚══════════════════════════════════════════════════╝${RESET}"
 echo ""
-echo -e "  This will set up everything you need to run the scanner."
-echo -e "  Press ${BOLD}Enter${RESET} to accept defaults. Skip any step you want."
+
+if [[ "$IS_RERUN" == "true" ]]; then
+  echo -e "  Existing configuration detected."
+  echo -e "  Press ${BOLD}Enter${RESET} to keep current values. Only enter new values to change them."
+
+  # Show existing vault keys
+  if [[ -f ".venv/bin/activate" ]]; then
+    source .venv/bin/activate 2>/dev/null || true
+    EXISTING_KEYS=$(python3 -c "
+import sys; sys.path.insert(0, '.')
+try:
+    from backend.storage.secrets import SecretsVault
+    v = SecretsVault(data_dir='data')
+    keys = v.list_keys()
+    if keys:
+        print(', '.join(keys))
+except Exception:
+    pass
+" 2>/dev/null || true)
+    if [[ -n "${EXISTING_KEYS:-}" ]]; then
+      echo ""
+      echo -e "  ${GREEN}Encrypted secrets already stored:${RESET} ${DIM}${EXISTING_KEYS}${RESET}"
+    fi
+  fi
+else
+  echo -e "  This will set up everything you need to run the scanner."
+  echo -e "  Press ${BOLD}Enter${RESET} to accept defaults. Skip any step you want."
+fi
 echo ""
 
 # ─── Step 1: Check Prerequisites ─────────────────────────────────────────
@@ -120,9 +157,6 @@ fi
 
 step "Installing dependencies"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-
 # Python venv
 if [[ ! -d ".venv" ]]; then
   info "Creating Python virtual environment..."
@@ -164,67 +198,95 @@ step "GitHub repository connections"
 
 mkdir -p config/tasks
 
-info "Each repo you want to scan needs a GitHub connection."
-info "You'll need a GitHub Personal Access Token (PAT) with repo read access."
-echo ""
+# Show existing connections if re-running
+EXISTING_CONNS=""
+if [[ -f "config/connections.yaml" ]]; then
+  EXISTING_CONNS=$(grep -c 'id:' config/connections.yaml 2>/dev/null || echo "0")
+  if [[ "$EXISTING_CONNS" != "0" ]]; then
+    info "${GREEN}Existing connections:${RESET}"
+    grep 'id:\|owner:\|repo:' config/connections.yaml | sed 's/^/    /'
+    echo ""
+  fi
+fi
+
+if [[ "$IS_RERUN" == "true" && "$EXISTING_CONNS" != "0" ]]; then
+  if ! ask_yn "Reconfigure connections? (Enter to keep existing)" "n"; then
+    ok "Keeping $EXISTING_CONNS existing connection(s)"
+    SKIP_CONNECTIONS=true
+  else
+    SKIP_CONNECTIONS=false
+  fi
+else
+  SKIP_CONNECTIONS=false
+fi
 
 CONNECTIONS=""
 CONN_COUNT=0
 
-while true; do
-  CONN_COUNT=$((CONN_COUNT + 1))
-
-  if [[ $CONN_COUNT -gt 1 ]]; then
-    if ! ask_yn "Add another repository?" "n"; then
-      break
-    fi
-  fi
-
+if [[ "$SKIP_CONNECTIONS" == "false" ]]; then
+  info "Each repo you want to scan needs a GitHub connection."
+  info "You'll need a GitHub Personal Access Token (PAT) with repo read access."
   echo ""
-  info "${BOLD}Connection #${CONN_COUNT}${RESET}"
-  ask "  Connection name (e.g. 'my-app')" CONN_NAME ""
-  [[ -z "$CONN_NAME" ]] && break
 
-  ask "  GitHub owner/org" CONN_OWNER ""
-  ask "  Repository name" CONN_REPO ""
-  ask "  Default branch" CONN_BRANCH "main"
+  while true; do
+    CONN_COUNT=$((CONN_COUNT + 1))
 
-  # Slugify connection name for ID
-  CONN_ID=$(echo "$CONN_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+    if [[ $CONN_COUNT -gt 1 ]]; then
+      if ! ask_yn "Add another repository?" "n"; then
+        break
+      fi
+    fi
 
-  CONNECTIONS="${CONNECTIONS}  - id: \"${CONN_ID}\"
+    echo ""
+    info "${BOLD}Connection #${CONN_COUNT}${RESET}"
+    ask "  Connection name (e.g. 'my-app')" CONN_NAME ""
+    [[ -z "$CONN_NAME" ]] && break
+
+    ask "  GitHub owner/org" CONN_OWNER ""
+    ask "  Repository name" CONN_REPO ""
+    ask "  Default branch" CONN_BRANCH "main"
+
+    # Slugify connection name for ID
+    CONN_ID=$(echo "$CONN_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+
+    CONNECTIONS="${CONNECTIONS}  - id: \"${CONN_ID}\"
     name: \"${CONN_NAME}\"
     owner: \"${CONN_OWNER}\"
     repo: \"${CONN_REPO}\"
     token: \"\${GITHUB_TOKEN}\"
     default_branch: \"${CONN_BRANCH}\"
 "
-done
+  done
 
-if [[ -n "$CONNECTIONS" ]]; then
-  cat > config/connections.yaml <<EOF
+  if [[ -n "$CONNECTIONS" ]]; then
+    cat > config/connections.yaml <<EOF
 connections:
 ${CONNECTIONS}
 EOF
-  ok "$CONN_COUNT connection(s) configured"
-else
-  warn "No connections configured — you can add them later in config/connections.yaml"
-  cat > config/connections.yaml <<EOF
+    ok "$CONN_COUNT connection(s) configured"
+  elif [[ ! -f "config/connections.yaml" ]]; then
+    warn "No connections configured — you can add them later in config/connections.yaml"
+    cat > config/connections.yaml <<EOF
 connections: []
 EOF
+  fi
 fi
 
 # GitHub token
 echo ""
-info "GitHub PAT is used for all connections (stored in .env, not in config files)."
-if ask_yn "Enter your GitHub token now?" "y"; then
+info "GitHub PAT is used for all connections (encrypted in the vault)."
+if ask_yn "Enter/update your GitHub token?" "$([ "$IS_RERUN" = true ] && echo "n" || echo "y")"; then
   ask_secret "  GitHub token (ghp_... or github_pat_...)" GH_TOKEN
   if [[ -n "$GH_TOKEN" ]]; then
     ok "Token received"
   fi
 else
   GH_TOKEN=""
-  warn "Skipped — set GITHUB_TOKEN in .env later"
+  if [[ "$IS_RERUN" == "true" ]]; then
+    ok "Keeping existing token"
+  else
+    warn "Skipped — add via: python3 -m backend.storage.setup_vault --data-dir data --set GITHUB_TOKEN=ghp_..."
+  fi
 fi
 
 # ─── Step 4: LLM Providers ──────────────────────────────────────────────
@@ -233,6 +295,10 @@ step "LLM providers (for AI-powered code review & benchmarks)"
 
 info "Pattern scanning (regex) works without any LLM keys."
 info "LLM providers are only needed for AI code review and benchmarking."
+if [[ "$IS_RERUN" == "true" ]]; then
+  echo ""
+  info "${DIM}Press Enter to skip any key you want to keep unchanged.${RESET}"
+fi
 echo ""
 
 OLLAMA_URL=""
@@ -310,6 +376,29 @@ for entry in "${CLOUD_PROVIDERS[@]}"; do
         - id: \"${default_model}\"
           name: \"${display_name}\"
 "
+  elif [[ "$IS_RERUN" == "true" ]]; then
+    # On re-run, skip means "keep existing" — check if it exists in vault
+    # and if so, keep the provider in settings.yaml
+    HAS_KEY=$(python3 -c "
+import sys; sys.path.insert(0, '.')
+try:
+    from backend.storage.secrets import SecretsVault
+    v = SecretsVault(data_dir='data')
+    print('yes' if v.get('$env_var') else 'no')
+except Exception:
+    print('no')
+" 2>/dev/null || echo "no")
+    if [[ "$HAS_KEY" == "yes" ]]; then
+      info "${DIM}  keeping existing ${pname} key${RESET}"
+      FALLBACK_ORDER="${FALLBACK_ORDER}
+    - ${pname}"
+      PROVIDERS_YAML="${PROVIDERS_YAML}    ${pname}:
+      api_key: \"\${${env_var}}\"
+      models:
+        - id: \"${default_model}\"
+          name: \"${display_name}\"
+"
+    fi
   fi
 done
 
@@ -320,6 +409,8 @@ CONFIGURED_COUNT=$((CONFIGURED_COUNT + ${#PROVIDER_KEYS[@]}))
 
 if [[ $CONFIGURED_COUNT -gt 0 ]]; then
   ok "${CONFIGURED_COUNT} LLM provider(s) configured"
+elif [[ "$IS_RERUN" == "true" ]]; then
+  info "LLM provider keys unchanged"
 else
   warn "No LLM providers configured — pattern scanning still works fine"
 fi
@@ -355,7 +446,11 @@ if ask_yn "Set up email notifications?" "n"; then
   ask "  From name" SMTP_NAME "Flexi Repo Scanner"
   ok "SMTP configured"
 else
-  warn "Skipped — you can configure email later in config/settings.yaml"
+  if [[ "$IS_RERUN" == "true" ]]; then
+    ok "Keeping existing SMTP configuration"
+  else
+    warn "Skipped — you can configure email later in config/settings.yaml"
+  fi
 fi
 
 # ─── Step 6: Write Config Files ─────────────────────────────────────────
@@ -373,7 +468,7 @@ ENVEOF
 
 ok ".env written (paths only — no secrets)"
 
-# Encrypt secrets into the vault
+# Encrypt secrets into the vault (merges with existing)
 VAULT_ARGS=()
 [[ -n "${GH_TOKEN:-}" ]] && VAULT_ARGS+=(--set "GITHUB_TOKEN=${GH_TOKEN}")
 [[ -n "${SMTP_USERNAME:-}" ]] && VAULT_ARGS+=(--set "SMTP_USERNAME=${SMTP_USERNAME}")
@@ -393,12 +488,18 @@ mkdir -p data
 if [[ ${#VAULT_ARGS[@]} -gt 0 ]]; then
   python3 -m backend.storage.setup_vault --data-dir data "${VAULT_ARGS[@]}"
   ok "Secrets encrypted in data/secrets.enc"
+elif [[ "$IS_RERUN" == "true" ]]; then
+  ok "Existing secrets unchanged"
 else
-  warn "No secrets provided — you can add them later via the vault helper"
+  warn "No secrets provided — add later via the setup wizard or vault CLI"
 fi
 
-# settings.yaml
-cat > config/settings.yaml <<SETEOF
+# settings.yaml — only write if first run or something changed
+# On re-run with no changes at all, preserve existing settings.yaml
+if [[ "$IS_RERUN" == "true" && -z "$SMTP_HOST" && ${#PROVIDER_KEYS[@]} -eq 0 && -z "$OLLAMA_URL" && -z "$PROVIDERS_YAML" ]]; then
+  ok "config/settings.yaml unchanged"
+else
+  cat > config/settings.yaml <<SETEOF
 server:
   host: "0.0.0.0"
   port: 8400
@@ -421,38 +522,66 @@ retention:
   max_days: 0
 SETEOF
 
-ok "config/settings.yaml written"
-ok "config/connections.yaml written"
+  ok "config/settings.yaml written"
+fi
 
 # ─── Step 7: Create Example Task ─────────────────────────────────────────
 
 step "Scan tasks"
 
-if [[ $CONN_COUNT -gt 0 ]]; then
-  info "Would you like to create a starter scan task?"
-  echo ""
-  info "  1) PII & Sensitive Data Scanner (regex patterns)"
-  info "  2) AI Authorship & Attribution Scanner (regex patterns)"
-  info "  3) LLM Code Review (requires LLM provider)"
-  info "  4) Copy all example tasks"
-  info "  5) Skip — I'll configure tasks later"
-  echo ""
-  echo -ne "  Choose ${DIM}[1-5]${RESET}: "
-  read -r task_choice
+# Count existing tasks
+EXISTING_TASKS=$(ls config/tasks/*.yaml 2>/dev/null | wc -l || echo "0")
 
-  # Get first connection ID
-  FIRST_CONN=$(grep -m1 'id:' config/connections.yaml | sed 's/.*id: *"\(.*\)"/\1/' | tr -d ' ')
+if [[ "$EXISTING_TASKS" -gt 0 ]]; then
+  info "${GREEN}Existing tasks:${RESET}"
+  for f in config/tasks/*.yaml; do
+    tname=$(grep -m1 'name:' "$f" 2>/dev/null | sed 's/.*name: *"\?\([^"]*\)"\?/\1/' || basename "$f")
+    echo -e "    ${DIM}$(basename "$f")${RESET} — $tname"
+  done
+  echo ""
+fi
 
-  case "$task_choice" in
-    1)
-      cp examples/tasks/pii-scan.example.yaml config/tasks/pii-scan.yaml
-      sed -i.bak "s/\"example-repo\"/\"${FIRST_CONN}\"/" config/tasks/pii-scan.yaml
-      rm -f config/tasks/pii-scan.yaml.bak
-      ok "PII scanner task created"
-      ;;
-    2)
-      # Create a focused AI attribution scanner
-      cat > config/tasks/ai-attribution.yaml <<TASKEOF
+# Get connection count from connections.yaml
+CONN_COUNT_FILE=$(grep -c 'id:' config/connections.yaml 2>/dev/null || echo "0")
+
+SHOW_TASK_MENU=false
+
+if [[ "$CONN_COUNT_FILE" -gt 0 ]]; then
+  if [[ "$EXISTING_TASKS" -gt 0 ]]; then
+    if ask_yn "Add more scan tasks?" "n"; then
+      SHOW_TASK_MENU=true
+    else
+      ok "Keeping $EXISTING_TASKS existing task(s)"
+    fi
+  else
+    SHOW_TASK_MENU=true
+  fi
+
+  if [[ "$SHOW_TASK_MENU" == "true" ]]; then
+    info "Would you like to create a starter scan task?"
+    echo ""
+    info "  1) PII & Sensitive Data Scanner (regex patterns)"
+    info "  2) AI Authorship & Attribution Scanner (regex patterns)"
+    info "  3) LLM Code Review (requires LLM provider)"
+    info "  4) Copy all example tasks"
+    info "  5) Skip — I'll configure tasks later"
+    echo ""
+    echo -ne "  Choose ${DIM}[1-5]${RESET}: "
+    read -r task_choice
+
+    # Get first connection ID
+    FIRST_CONN=$(grep -m1 'id:' config/connections.yaml | sed 's/.*id: *"\(.*\)"/\1/' | tr -d ' ')
+
+    case "$task_choice" in
+      1)
+        cp examples/tasks/pii-scan.example.yaml config/tasks/pii-scan.yaml
+        sed -i.bak "s/\"example-repo\"/\"${FIRST_CONN}\"/" config/tasks/pii-scan.yaml
+        rm -f config/tasks/pii-scan.yaml.bak
+        ok "PII scanner task created"
+        ;;
+      2)
+        # Create a focused AI attribution scanner
+        cat > config/tasks/ai-attribution.yaml <<TASKEOF
 id: "ai-attribution"
 name: "AI Attribution Scanner"
 description: "Detect AI authorship traces, tool references, and attribution"
@@ -512,27 +641,28 @@ actions:
   - type: "in-app-notify"
     trigger: "findings"
 TASKEOF
-      ok "AI attribution scanner task created"
-      ;;
-    3)
-      cp examples/tasks/code-review.example.yaml config/tasks/code-review.yaml
-      sed -i.bak "s/\"example-repo\"/\"${FIRST_CONN}\"/" config/tasks/code-review.yaml
-      rm -f config/tasks/code-review.yaml.bak
-      ok "LLM code review task created"
-      ;;
-    4)
-      for f in examples/tasks/*.example.yaml; do
-        base=$(basename "$f" .example.yaml)
-        cp "$f" "config/tasks/${base}.yaml"
-        sed -i.bak "s/\"example-repo\"/\"${FIRST_CONN}\"/" "config/tasks/${base}.yaml"
-        rm -f "config/tasks/${base}.yaml.bak"
-      done
-      ok "All example tasks copied"
-      ;;
-    *)
-      warn "Skipped — add task YAML files to config/tasks/ when ready"
-      ;;
-  esac
+        ok "AI attribution scanner task created"
+        ;;
+      3)
+        cp examples/tasks/code-review.example.yaml config/tasks/code-review.yaml
+        sed -i.bak "s/\"example-repo\"/\"${FIRST_CONN}\"/" config/tasks/code-review.yaml
+        rm -f config/tasks/code-review.yaml.bak
+        ok "LLM code review task created"
+        ;;
+      4)
+        for f in examples/tasks/*.example.yaml; do
+          base=$(basename "$f" .example.yaml)
+          cp "$f" "config/tasks/${base}.yaml"
+          sed -i.bak "s/\"example-repo\"/\"${FIRST_CONN}\"/" "config/tasks/${base}.yaml"
+          rm -f "config/tasks/${base}.yaml.bak"
+        done
+        ok "All example tasks copied"
+        ;;
+      *)
+        warn "Skipped — add task YAML files to config/tasks/ when ready"
+        ;;
+    esac
+  fi
 else
   warn "No connections configured — add tasks after setting up connections"
 fi
@@ -545,7 +675,7 @@ echo -e "${BOLD}║              Setup Complete                      ║${RESET}
 echo -e "${BOLD}╚══════════════════════════════════════════════════╝${RESET}"
 echo ""
 
-echo -e "  ${BOLD}Files created:${RESET}"
+echo -e "  ${BOLD}Files:${RESET}"
 echo -e "    .env                        ${DIM}← paths only (gitignored)${RESET}"
 echo -e "    data/secrets.enc            ${DIM}← encrypted secrets vault${RESET}"
 echo -e "    data/secret.key             ${DIM}← encryption key (chmod 600)${RESET}"
@@ -554,6 +684,23 @@ echo -e "    config/connections.yaml     ${DIM}← GitHub repos${RESET}"
 ls config/tasks/*.yaml 2>/dev/null | while read f; do
   echo -e "    ${f}  ${DIM}← scan task${RESET}"
 done
+
+# Show what's in the vault
+VAULT_KEYS=$(python3 -c "
+import sys; sys.path.insert(0, '.')
+try:
+    from backend.storage.secrets import SecretsVault
+    v = SecretsVault(data_dir='data')
+    keys = v.list_keys()
+    if keys:
+        print(', '.join(keys))
+except Exception:
+    pass
+" 2>/dev/null || true)
+if [[ -n "${VAULT_KEYS:-}" ]]; then
+  echo ""
+  echo -e "  ${BOLD}Encrypted secrets:${RESET} ${DIM}${VAULT_KEYS}${RESET}"
+fi
 
 echo ""
 echo -e "  ${BOLD}To start the scanner:${RESET}"
@@ -567,5 +714,6 @@ if [[ "$OLLAMA_INSTALLED" == "true" && -n "$OLLAMA_URL" ]]; then
   echo -e "  ${DIM}Make sure Ollama is running: ollama serve${RESET}"
 fi
 
-echo -e "  ${DIM}To re-run setup: ./setup.sh${RESET}"
+echo -e "  ${DIM}To update keys or config: ./setup.sh${RESET}"
+echo -e "  ${DIM}To update a single secret: python3 -m backend.storage.setup_vault --data-dir data --set KEY=VALUE${RESET}"
 echo ""
