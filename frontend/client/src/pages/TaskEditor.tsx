@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { fetchTask, createTask, updateTask, fetchConnections, fetchModels } from "@/lib/api";
+import { fetchTask, createTask, updateTask, fetchConnections, fetchModels, generateRules } from "@/lib/api";
 import type { Task, Connection, LLMModel, PatternRule, AllowlistEntry, TaskAction, Severity } from "@/lib/types";
 import {
   Save,
@@ -36,6 +36,7 @@ import {
   ClipboardCopy,
   Check,
   Sparkles,
+  Loader2,
 } from "lucide-react";
 
 export default function TaskEditor() {
@@ -83,6 +84,22 @@ export default function TaskEditor() {
   const [builderPrompt, setBuilderPrompt] = useState("");
   const [refinementPrompt, setRefinementPrompt] = useState("");
   const [refinementCopied, setRefinementCopied] = useState(false);
+
+  // LLM generation state
+  const [generateLoading, setGenerateLoading] = useState(false);
+  const [generatePreview, setGeneratePreview] = useState<{
+    suggestions: string;
+    parsed: Record<string, unknown>;
+    model: string;
+    tokens: { input: number; output: number };
+  } | null>(null);
+  const [refineLoading, setRefineLoading] = useState(false);
+  const [refinePreview, setRefinePreview] = useState<{
+    suggestions: string;
+    parsed: Record<string, unknown>;
+    model: string;
+    tokens: { input: number; output: number };
+  } | null>(null);
 
   // Initialize form from fetched task
   if (existingTask && !initialized) {
@@ -183,6 +200,134 @@ export default function TaskEditor() {
     setActions(actions.filter((_, i) => i !== index));
   };
 
+  const handleGenerate = async () => {
+    setGenerateLoading(true);
+    setGeneratePreview(null);
+    try {
+      const result = await generateRules("create", builderPrompt);
+      setGeneratePreview(result);
+    } catch (err: any) {
+      toast({ title: "Generation failed", description: err.message, variant: "destructive" });
+    } finally {
+      setGenerateLoading(false);
+    }
+  };
+
+  const applyGeneratedRules = () => {
+    if (!generatePreview?.parsed) return;
+    const parsed = generatePreview.parsed as { rules?: any[] };
+    const newRules: PatternRule[] = (parsed.rules || []).map((r: any) => ({
+      id: r.id || `rule-${Date.now()}`,
+      name: r.name || "",
+      pattern: r.pattern || "",
+      severity: r.severity || "medium",
+      case_sensitive: r.case_sensitive,
+      context_requires: r.context_requires,
+    }));
+    if (newRules.length > 0) {
+      setRules(newRules);
+      toast({ title: "Rules applied", description: `${newRules.length} rule(s) set from LLM suggestions` });
+    }
+    setGeneratePreview(null);
+  };
+
+  const buildCurrentConfig = (): Record<string, unknown> => ({
+    name,
+    description,
+    connection,
+    schedule: { cron, timezone },
+    scan: {
+      mode: scanMode,
+      type: scanType,
+      paths: {
+        include: includeGlobs.split(",").map((g) => g.trim()).filter(Boolean),
+        exclude: excludeGlobs.split(",").map((g) => g.trim()).filter(Boolean),
+      },
+      ...(scanType === "pattern" ? { rules } : {}),
+      allowlist: allowlist.length > 0 ? allowlist : undefined,
+    },
+    actions,
+  });
+
+  const handleRefine = async () => {
+    setRefineLoading(true);
+    setRefinePreview(null);
+    try {
+      const result = await generateRules("refine", refinementPrompt, buildCurrentConfig());
+      setRefinePreview(result);
+    } catch (err: any) {
+      toast({ title: "Refinement failed", description: err.message, variant: "destructive" });
+    } finally {
+      setRefineLoading(false);
+    }
+  };
+
+  const applyRefineSuggestions = () => {
+    if (!refinePreview?.parsed) return;
+    const p = refinePreview.parsed as {
+      rules_to_add?: any[];
+      rules_to_modify?: any[];
+      rules_to_remove?: any[];
+      allowlist_to_add?: any[];
+      paths_to_exclude?: any[];
+    };
+    let updated = [...rules];
+
+    // Add new rules
+    if (p.rules_to_add?.length) {
+      for (const r of p.rules_to_add) {
+        updated.push({
+          id: r.id || `rule-${Date.now()}`,
+          name: r.name || "",
+          pattern: r.pattern || "",
+          severity: r.severity || "medium",
+          case_sensitive: r.case_sensitive,
+          context_requires: r.context_requires,
+        });
+      }
+    }
+
+    // Modify existing rules
+    if (p.rules_to_modify?.length) {
+      for (const mod of p.rules_to_modify) {
+        const idx = updated.findIndex((r) => r.id === mod.id);
+        if (idx !== -1 && mod.changes) {
+          updated[idx] = { ...updated[idx], ...mod.changes };
+        }
+      }
+    }
+
+    // Remove rules
+    if (p.rules_to_remove?.length) {
+      const idsToRemove = new Set(p.rules_to_remove.map((r: any) => (typeof r === "string" ? r : r.id)));
+      updated = updated.filter((r) => !idsToRemove.has(r.id));
+    }
+
+    setRules(updated);
+
+    // Append to allowlist
+    if (p.allowlist_to_add?.length) {
+      const newEntries: AllowlistEntry[] = p.allowlist_to_add.map((a: any) => ({
+        file: a.file,
+        match: a.match,
+        pattern: a.pattern,
+        rules: a.rules,
+        reason: a.reason || "",
+      }));
+      setAllowlist([...allowlist, ...newEntries]);
+    }
+
+    // Append to exclude globs
+    if (p.paths_to_exclude?.length) {
+      const current = excludeGlobs.split(",").map((g) => g.trim()).filter(Boolean);
+      const merged = [...current, ...p.paths_to_exclude];
+      setExcludeGlobs(merged.join(", "));
+    }
+
+    toast({ title: "Refinements applied", description: "Suggestions merged into current config" });
+    setRefinePreview(null);
+  };
+
   // Generate YAML representation
   const yamlContent = `id: "${taskId || "new-task"}"
 name: "${name}"
@@ -239,13 +384,41 @@ ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.reci
                 className="mt-1.5 h-16 text-sm bg-background border-border resize-none"
                 data-testid="input-builder-prompt"
               />
-              <Button variant="outline" size="sm" className="mt-2 h-7 text-xs gap-1.5" disabled={!builderPrompt}>
-                <Wand2 className="w-3 h-3" /> Generate Rules
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 h-7 text-xs gap-1.5"
+                disabled={!builderPrompt || generateLoading}
+                onClick={handleGenerate}
+              >
+                {generateLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                {generateLoading ? "Generating…" : "Generate Rules"}
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Generate preview card */}
+      {generatePreview && (
+        <Card className="bg-card border-primary/30 border-dashed">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-primary">LLM Suggestions</span>
+              <span className="text-[10px] text-muted-foreground">
+                {generatePreview.model} · {generatePreview.tokens.input + generatePreview.tokens.output} tokens
+              </span>
+            </div>
+            <pre className="text-xs font-mono bg-background rounded-lg p-3 overflow-auto max-h-[300px] border border-border whitespace-pre-wrap">
+              {generatePreview.suggestions}
+            </pre>
+            <div className="flex items-center gap-2">
+              <Button size="sm" className="h-7 text-xs" onClick={applyGeneratedRules}>Apply Rules</Button>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setGeneratePreview(null)}>Dismiss</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Refine with Prompt */}
       {!isNew && (
@@ -267,75 +440,95 @@ ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.reci
                   className="h-16 text-sm bg-background border-border resize-none"
                   data-testid="input-refinement-prompt"
                 />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={`mt-2 h-7 text-xs gap-1.5 transition-colors ${refinementCopied ? "border-emerald-500/50 text-emerald-400" : ""}`}
-                  disabled={!refinementPrompt.trim()}
-                  data-testid="button-generate-suggestions"
-                  onClick={() => {
-                    const rulesYaml = rules.map((r) =>
-                      `  - id: "${r.id}"\n    name: "${r.name}"\n    pattern: '${r.pattern}'\n    severity: "${r.severity}"`
-                    ).join("\n");
-                    const allowlistYaml = allowlist.length > 0
-                      ? allowlist.map((a) => {
-                          const parts = [];
-                          if (a.file) parts.push(`file: "${a.file}"`);
-                          if (a.match) parts.push(`match: "${a.match}"`);
-                          if (a.pattern) parts.push(`pattern: "${a.pattern}"`);
-                          if (a.rules?.length) parts.push(`rules: [${a.rules.map((r) => `"${r}"`).join(", ")}]`);
-                          parts.push(`reason: "${a.reason}"`);
-                          return `  - { ${parts.join(", ")} }`;
-                        }).join("\n")
-                      : "  (none)";
+                <div className="flex items-center gap-2 mt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1.5"
+                    disabled={!refinementPrompt.trim() || refineLoading}
+                    data-testid="button-generate-suggestions"
+                    onClick={handleRefine}
+                  >
+                    {refineLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                    {refineLoading ? "Getting suggestions…" : "Get Suggestions"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`h-7 text-xs gap-1.5 transition-colors ${refinementCopied ? "text-emerald-400" : ""}`}
+                    disabled={!refinementPrompt.trim()}
+                    onClick={() => {
+                      const rulesYaml = rules.map((r) =>
+                        `  - id: "${r.id}"\n    name: "${r.name}"\n    pattern: '${r.pattern}'\n    severity: "${r.severity}"`
+                      ).join("\n");
+                      const allowlistYaml = allowlist.length > 0
+                        ? allowlist.map((a) => {
+                            const parts = [];
+                            if (a.file) parts.push(`file: "${a.file}"`);
+                            if (a.match) parts.push(`match: "${a.match}"`);
+                            if (a.pattern) parts.push(`pattern: "${a.pattern}"`);
+                            if (a.rules?.length) parts.push(`rules: [${a.rules.map((r) => `"${r}"`).join(", ")}]`);
+                            parts.push(`reason: "${a.reason}"`);
+                            return `  - { ${parts.join(", ")} }`;
+                          }).join("\n")
+                        : "  (none)";
 
-                    const md = [
-                      "# Task Config Refinement Request",
-                      "",
-                      "## Current Task Config",
-                      "",
-                      "```yaml",
-                      `name: "${name}"`,
-                      `connection: "${connection}"`,
-                      `scan:`,
-                      `  type: "${scanType}"`,
-                      `  mode: "${scanMode}"`,
-                      `  paths:`,
-                      `    include: [${includeGlobs.split(",").map((g) => `"${g.trim()}"`).join(", ")}]`,
-                      `    exclude: [${excludeGlobs.split(",").map((g) => `"${g.trim()}"`).join(", ")}]`,
-                      scanType === "pattern" ? `  rules:\n${rulesYaml}` : "",
-                      `  allowlist:\n${allowlistYaml}`,
-                      "```",
-                      "",
-                      "## Refinement Request",
-                      "",
-                      refinementPrompt.trim(),
-                      "",
-                      "## Instructions",
-                      "",
-                      "Based on the refinement request above, suggest specific changes to the task config. Provide your suggestions as YAML snippets that can be pasted back into the config. You may suggest:",
-                      "- New or modified allowlist entries",
-                      "- Rule changes (new patterns, modified severity, etc.)",
-                      "- Path include/exclude adjustments",
-                      "",
-                      "Format each suggestion as a YAML block with a brief explanation of what it does.",
-                    ].filter(Boolean).join("\n");
+                      const md = [
+                        "# Task Config Refinement Request",
+                        "",
+                        "## Current Task Config",
+                        "",
+                        "```yaml",
+                        `name: "${name}"`,
+                        `connection: "${connection}"`,
+                        `scan:`,
+                        `  type: "${scanType}"`,
+                        `  mode: "${scanMode}"`,
+                        `  paths:`,
+                        `    include: [${includeGlobs.split(",").map((g) => `"${g.trim()}"`).join(", ")}]`,
+                        `    exclude: [${excludeGlobs.split(",").map((g) => `"${g.trim()}"`).join(", ")}]`,
+                        scanType === "pattern" ? `  rules:\n${rulesYaml}` : "",
+                        `  allowlist:\n${allowlistYaml}`,
+                        "```",
+                        "",
+                        "## Refinement Request",
+                        "",
+                        refinementPrompt.trim(),
+                      ].filter(Boolean).join("\n");
 
-                    navigator.clipboard.writeText(md).then(() => {
-                      setRefinementCopied(true);
-                      toast({ title: "Copied to clipboard", description: "Task config + refinement prompt copied — paste into your LLM" });
-                      setTimeout(() => setRefinementCopied(false), 2500);
-                    });
-                  }}
-                >
-                  {refinementCopied ? (
-                    <Check className="w-3.5 h-3.5" />
-                  ) : (
-                    <ClipboardCopy className="w-3.5 h-3.5" />
-                  )}
-                  {refinementCopied ? "Copied!" : "Copy for LLM"}
-                </Button>
+                      navigator.clipboard.writeText(md).then(() => {
+                        setRefinementCopied(true);
+                        toast({ title: "Copied to clipboard", description: "Task config + refinement prompt copied" });
+                        setTimeout(() => setRefinementCopied(false), 2500);
+                      });
+                    }}
+                  >
+                    {refinementCopied ? <Check className="w-3.5 h-3.5" /> : <ClipboardCopy className="w-3.5 h-3.5" />}
+                    {refinementCopied ? "Copied!" : "Copy"}
+                  </Button>
+                </div>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Refine preview card */}
+      {refinePreview && (
+        <Card className="bg-card border-primary/30 border-dashed">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-primary">LLM Suggestions</span>
+              <span className="text-[10px] text-muted-foreground">
+                {refinePreview.model} · {refinePreview.tokens.input + refinePreview.tokens.output} tokens
+              </span>
+            </div>
+            <pre className="text-xs font-mono bg-background rounded-lg p-3 overflow-auto max-h-[300px] border border-border whitespace-pre-wrap">
+              {refinePreview.suggestions}
+            </pre>
+            <div className="flex items-center gap-2">
+              <Button size="sm" className="h-7 text-xs" onClick={applyRefineSuggestions}>Apply Changes</Button>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setRefinePreview(null)}>Dismiss</Button>
             </div>
           </CardContent>
         </Card>

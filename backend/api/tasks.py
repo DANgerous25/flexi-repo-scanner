@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+import logging
+import re
+from typing import Any, Optional
 
+import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.config import TaskConfig
+from backend.llm import router as llm
 from backend.storage import config_loader, db
 from backend.tasks import executor, scheduler, templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -33,6 +39,142 @@ class AllowlistEntryRequest(BaseModel):
 
 class AllowlistRequest(BaseModel):
     entries: list[AllowlistEntryRequest]
+
+
+class GenerateRequest(BaseModel):
+    mode: str  # "create" | "refine"
+    prompt: str
+    current_config: Optional[dict] = None
+
+
+CREATE_SYSTEM_PROMPT = """\
+You are a code scanning rule generator. The user will describe what they want to scan for in their code repository.
+
+Generate YAML configuration for a pattern-based code scanner. Output ONLY valid YAML with no other text.
+
+Format:
+rules:
+  - id: "rule-id"
+    name: "Human Readable Name"
+    pattern: 'regex-pattern-here'
+    severity: "critical|high|medium|low|info"
+    case_sensitive: true|false
+    context_requires: 'optional-context-regex'
+
+Guidelines:
+- Use precise regex patterns that minimize false positives
+- Set appropriate severity levels
+- Add context_requires when a pattern alone would have too many false positives
+- Group related patterns into separate rules with descriptive IDs
+- Use case_sensitive: false for text that could appear in any case"""
+
+REFINE_SYSTEM_PROMPT = """\
+You are a code scanning rule refinement assistant. The user has an existing scanner task config and wants to modify it.
+
+Review the current config and the user's refinement request. Suggest specific changes.
+
+Output ONLY valid YAML blocks showing the changes. Use these sections:
+
+rules_to_add:
+  - id: "new-rule"
+    name: "..."
+    pattern: '...'
+    severity: "..."
+
+rules_to_modify:
+  - id: "existing-rule-id"
+    changes:
+      pattern: 'new-pattern'
+
+rules_to_remove:
+  - "rule-id-to-remove"
+
+allowlist_to_add:
+  - file: "path/glob"
+    match: "exact-match-text"
+    rules: ["rule-id"]
+    reason: "Why this is allowlisted"
+
+paths_to_exclude:
+  - "new/path/to/exclude/"
+
+Explain each change briefly in a YAML comment. Only include sections that have changes."""
+
+
+def _strip_yaml_fences(text: str) -> str:
+    """Remove markdown code fences from LLM output so yaml.safe_load works."""
+    text = text.strip()
+    text = re.sub(r"^```(?:ya?ml)?\s*\n", "", text)
+    text = re.sub(r"\n```\s*$", "", text)
+    return text.strip()
+
+
+def _parse_suggestions(raw: str, mode: str) -> dict[str, Any]:
+    """Parse the raw YAML suggestions from the LLM into structured JSON."""
+    cleaned = _strip_yaml_fences(raw)
+    try:
+        data = yaml.safe_load(cleaned) or {}
+    except yaml.YAMLError as exc:
+        logger.warning("Failed to parse YAML suggestions: %s", exc)
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+
+    if mode == "create":
+        rules = data.get("rules", [])
+        if isinstance(rules, list):
+            return {"rules": rules}
+        return {}
+
+    # refine mode
+    return {
+        "rules_to_add": data.get("rules_to_add", []),
+        "rules_to_modify": data.get("rules_to_modify", []),
+        "rules_to_remove": data.get("rules_to_remove", []),
+        "allowlist_to_add": data.get("allowlist_to_add", []),
+        "paths_to_exclude": data.get("paths_to_exclude", []),
+    }
+
+
+@router.post("/generate")
+async def generate_rules(req: GenerateRequest):
+    """Call the LLM to generate or refine scanning rules."""
+    settings = config_loader.load_settings()
+
+    if req.mode == "create":
+        system = CREATE_SYSTEM_PROMPT
+        user_msg = req.prompt
+    else:
+        system = REFINE_SYSTEM_PROMPT
+        user_msg = f"## Current Config\n```yaml\n{yaml.dump(req.current_config)}\n```\n\n## Refinement Request\n{req.prompt}"
+
+    result = await llm.complete(
+        model="auto",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_msg},
+        ],
+        settings=settings,
+        temperature=0.1,
+        max_tokens=4096,
+    )
+
+    if result.get("error"):
+        raise HTTPException(502, f"LLM error: {result['error']}")
+
+    raw_content = result["content"]
+    parsed = _parse_suggestions(raw_content, req.mode)
+
+    return {
+        "suggestions": raw_content,
+        "parsed": parsed,
+        "model": result["model"],
+        "tokens": {
+            "input": result["input_tokens"],
+            "output": result["output_tokens"],
+        },
+    }
 
 
 @router.get("")

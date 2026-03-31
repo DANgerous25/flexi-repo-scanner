@@ -173,6 +173,26 @@ export async function testConnection(id: string): Promise<{ success: boolean; me
   };
 }
 
+// ── LLM Generate ────────────────────────────────────────
+
+export async function generateRules(
+  mode: "create" | "refine",
+  prompt: string,
+  currentConfig?: Record<string, unknown>
+): Promise<{
+  suggestions: string;
+  parsed: Record<string, unknown>;
+  model: string;
+  tokens: { input: number; output: number };
+}> {
+  return post<{
+    suggestions: string;
+    parsed: Record<string, unknown>;
+    model: string;
+    tokens: { input: number; output: number };
+  }>("/api/tasks/generate", { mode, prompt, current_config: currentConfig });
+}
+
 // ── Allowlist ────────────────────────────────────────────
 
 export async function addToAllowlist(
