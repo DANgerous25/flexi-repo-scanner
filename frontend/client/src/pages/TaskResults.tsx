@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -20,9 +21,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SeverityBadge, RunStatusBadge, ScanTypeBadge } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
-import { fetchTask, fetchTaskResults, fetchRunFindings } from "@/lib/api";
+import { fetchTask, fetchTaskResults, fetchRunFindings, addToAllowlist, fetchFileContent } from "@/lib/api";
+import CodeViewer from "@/components/CodeViewer";
 import type { Task, TaskRun, Finding } from "@/lib/types";
 import {
   Download,
@@ -35,6 +38,7 @@ import {
   AlertTriangle,
   ClipboardCopy,
   Check,
+  ShieldOff,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -149,6 +153,13 @@ export default function TaskResults() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<"none" | "category" | "severity">("none");
   const [copied, setCopied] = useState(false);
+  const [allowlistedIds, setAllowlistedIds] = useState<Set<string>>(new Set());
+  const [codeViewerOpen, setCodeViewerOpen] = useState(false);
+  const [codeViewerFile, setCodeViewerFile] = useState("");
+  const [codeViewerLine, setCodeViewerLine] = useState<number | undefined>();
+  const [codeViewerContent, setCodeViewerContent] = useState<string | null>(null);
+  const [codeViewerLoading, setCodeViewerLoading] = useState(false);
+  const [codeViewerError, setCodeViewerError] = useState<string | undefined>();
   const { toast } = useToast();
 
   const { data: task, isLoading: taskLoading } = useQuery<Task>({
@@ -245,10 +256,38 @@ export default function TaskResults() {
               {copied ? "Copied" : "Copy for LLM"}
             </Button>
           )}
-          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" data-testid="button-export-json">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1.5"
+            data-testid="button-export-json"
+            disabled={!selectedRun}
+            onClick={() => {
+              if (selectedRun) {
+                const a = document.createElement("a");
+                a.href = `/api/results/${encodeURIComponent(selectedRun.id)}/export/json`;
+                a.download = `findings-${selectedRun.id}.json`;
+                a.click();
+              }
+            }}
+          >
             <FileJson className="w-3.5 h-3.5" /> JSON
           </Button>
-          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" data-testid="button-export-csv">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1.5"
+            data-testid="button-export-csv"
+            disabled={!selectedRun}
+            onClick={() => {
+              if (selectedRun) {
+                const a = document.createElement("a");
+                a.href = `/api/results/${encodeURIComponent(selectedRun.id)}/export/csv`;
+                a.download = `findings-${selectedRun.id}.csv`;
+                a.click();
+              }
+            }}
+          >
             <FileSpreadsheet className="w-3.5 h-3.5" /> CSV
           </Button>
         </div>
@@ -363,13 +402,45 @@ export default function TaskResults() {
                       <TableHead className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Severity</TableHead>
                       <TableHead className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Rule</TableHead>
                       <TableHead className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Matched Text</TableHead>
+                      <TableHead className="w-8" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {items.map((finding) => (
-                      <TableRow key={finding.id} className="border-border" data-testid={`row-finding-${finding.id}`}>
+                    {items.map((finding) => {
+                      const isAllowlisted = allowlistedIds.has(finding.id);
+                      return (
+                      <TableRow
+                        key={finding.id}
+                        className={`border-border ${isAllowlisted ? "opacity-50" : ""}`}
+                        data-testid={`row-finding-${finding.id}`}
+                      >
                         <TableCell>
-                          <span className="text-xs font-code text-foreground">{finding.file}</span>
+                          <button
+                            className="text-xs font-code text-cyan-400 hover:underline cursor-pointer bg-transparent border-none p-0 text-left"
+                            onClick={() => {
+                              if (!task) return;
+                              setCodeViewerFile(finding.file);
+                              setCodeViewerLine(finding.line);
+                              setCodeViewerContent(null);
+                              setCodeViewerError(undefined);
+                              setCodeViewerLoading(true);
+                              setCodeViewerOpen(true);
+                              fetchFileContent(task.connection, finding.file)
+                                .then((res) => {
+                                  setCodeViewerContent(res.content);
+                                  setCodeViewerLoading(false);
+                                })
+                                .catch((err) => {
+                                  setCodeViewerError(err.message || "Failed to load file");
+                                  setCodeViewerLoading(false);
+                                });
+                            }}
+                          >
+                            {finding.file}
+                          </button>
+                          {isAllowlisted && (
+                            <Badge variant="outline" className="ml-2 text-[9px] border-emerald-500/30 text-emerald-400">allowlisted</Badge>
+                          )}
                         </TableCell>
                         <TableCell>
                           <span className="text-xs font-code text-muted-foreground">{finding.line ?? "—"}</span>
@@ -385,8 +456,18 @@ export default function TaskResults() {
                             {finding.matched_text}
                           </code>
                         </TableCell>
+                        <TableCell>
+                          <AllowlistPopover
+                            finding={finding}
+                            taskId={taskId!}
+                            onAllowlisted={() => {
+                              setAllowlistedIds((prev) => new Set([...prev, finding.id]));
+                            }}
+                          />
+                        </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -394,6 +475,118 @@ export default function TaskResults() {
           )}
         </Card>
       )}
+
+      <CodeViewer
+        open={codeViewerOpen}
+        onOpenChange={setCodeViewerOpen}
+        filePath={codeViewerFile}
+        line={codeViewerLine}
+        content={codeViewerContent}
+        loading={codeViewerLoading}
+        error={codeViewerError}
+      />
     </div>
+  );
+}
+
+function AllowlistPopover({
+  finding,
+  taskId,
+  onAllowlisted,
+}: {
+  finding: Finding;
+  taskId: string;
+  onAllowlisted: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [scope, setScope] = useState<"match" | "file-rule" | "file" | "custom">("match");
+  const [customPattern, setCustomPattern] = useState("");
+  const [reason, setReason] = useState("Allowlisted from scan results");
+  const [submitting, setSubmitting] = useState(false);
+  const { toast } = useToast();
+
+  const handleAdd = async () => {
+    setSubmitting(true);
+    try {
+      let entry: Record<string, unknown> = { reason };
+      switch (scope) {
+        case "match":
+          entry.match = finding.matched_text;
+          entry.rules = [finding.rule_id];
+          break;
+        case "file-rule":
+          entry.file = finding.file;
+          entry.rules = [finding.rule_id];
+          break;
+        case "file":
+          entry.file = finding.file;
+          break;
+        case "custom":
+          entry.pattern = customPattern;
+          break;
+      }
+      await addToAllowlist(taskId, [entry as any]);
+      toast({ title: "Added to allowlist", description: `Finding allowlisted (${scope})` });
+      onAllowlisted();
+      setOpen(false);
+    } catch (err: any) {
+      toast({ title: "Failed to add to allowlist", description: err.message, variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground">
+          <ShieldOff className="w-3.5 h-3.5" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 space-y-3">
+        <p className="text-xs font-semibold text-foreground">Add to Allowlist</p>
+        <div className="space-y-1.5">
+          {[
+            { value: "match" as const, label: "This exact match" },
+            { value: "file-rule" as const, label: "This rule in this file" },
+            { value: "file" as const, label: "All rules in this file" },
+            { value: "custom" as const, label: "Custom pattern" },
+          ].map((opt) => (
+            <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name={`scope-${finding.id}`}
+                checked={scope === opt.value}
+                onChange={() => setScope(opt.value)}
+                className="accent-cyan-500"
+              />
+              <span className="text-xs text-foreground">{opt.label}</span>
+            </label>
+          ))}
+        </div>
+        {scope === "custom" && (
+          <Input
+            value={customPattern}
+            onChange={(e) => setCustomPattern(e.target.value)}
+            placeholder="Regex pattern"
+            className="h-7 text-xs font-code bg-background border-border"
+          />
+        )}
+        <Input
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Reason"
+          className="h-7 text-xs bg-background border-border"
+        />
+        <Button
+          size="sm"
+          className="w-full h-7 text-xs"
+          disabled={submitting || (scope === "custom" && !customPattern)}
+          onClick={handleAdd}
+        >
+          {submitting ? "Adding…" : "Add to Allowlist"}
+        </Button>
+      </PopoverContent>
+    </Popover>
   );
 }

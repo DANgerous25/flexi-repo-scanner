@@ -173,6 +173,28 @@ export async function testConnection(id: string): Promise<{ success: boolean; me
   };
 }
 
+// ── Allowlist ────────────────────────────────────────────
+
+export async function addToAllowlist(
+  taskId: string,
+  entries: Array<{ file?: string; pattern?: string; match?: string; rules?: string[]; reason: string }>
+): Promise<{ allowlist: any[] }> {
+  return post<{ allowlist: any[] }>(`/api/tasks/${encodeURIComponent(taskId)}/allowlist`, { entries });
+}
+
+// ── File Content ─────────────────────────────────────────
+
+export async function fetchFileContent(
+  connId: string,
+  path: string,
+  ref: string = "main"
+): Promise<{ path: string; content: string; encoding: string; size: number; sha: string }> {
+  const params = new URLSearchParams({ path, ref });
+  return get<{ path: string; content: string; encoding: string; size: number; sha: string }>(
+    `/api/connections/${encodeURIComponent(connId)}/file?${params.toString()}`
+  );
+}
+
 // ── Results ─────────────────────────────────────────────
 
 export async function fetchResults(): Promise<TaskRun[]> {

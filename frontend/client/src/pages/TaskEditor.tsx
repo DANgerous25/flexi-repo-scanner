@@ -33,6 +33,9 @@ import {
   ChevronUp,
   GripVertical,
   AlertTriangle,
+  ClipboardCopy,
+  Check,
+  Sparkles,
 } from "lucide-react";
 
 export default function TaskEditor() {
@@ -78,6 +81,8 @@ export default function TaskEditor() {
   const [allowlist, setAllowlist] = useState<AllowlistEntry[]>([]);
   const [actions, setActions] = useState<TaskAction[]>([]);
   const [builderPrompt, setBuilderPrompt] = useState("");
+  const [refinementPrompt, setRefinementPrompt] = useState("");
+  const [refinementCopied, setRefinementCopied] = useState(false);
 
   // Initialize form from fetched task
   if (existingTask && !initialized) {
@@ -527,6 +532,96 @@ ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.reci
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Refine with Prompt */}
+          <Card className="bg-card border-card-border">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <CardTitle className="text-sm font-semibold">Refine with Prompt</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Describe changes you want in natural language. The current config and your prompt will be copied to clipboard for LLM review.
+              </p>
+              <Textarea
+                value={refinementPrompt}
+                onChange={(e) => setRefinementPrompt(e.target.value)}
+                placeholder='e.g. "Exclude numeric patterns in earnings files" or "Stop flagging version numbers as phone numbers"'
+                className="h-20 text-sm bg-background border-border resize-none"
+                data-testid="input-refinement-prompt"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className={`h-8 text-xs gap-1.5 transition-colors ${refinementCopied ? "border-emerald-500/50 text-emerald-400" : ""}`}
+                disabled={!refinementPrompt.trim()}
+                data-testid="button-generate-suggestions"
+                onClick={() => {
+                  const rulesYaml = rules.map((r) =>
+                    `  - id: "${r.id}"\n    name: "${r.name}"\n    pattern: '${r.pattern}'\n    severity: "${r.severity}"`
+                  ).join("\n");
+                  const allowlistYaml = allowlist.length > 0
+                    ? allowlist.map((a) => {
+                        const parts = [];
+                        if (a.file) parts.push(`file: "${a.file}"`);
+                        if (a.match) parts.push(`match: "${a.match}"`);
+                        if (a.pattern) parts.push(`pattern: "${a.pattern}"`);
+                        if (a.rules?.length) parts.push(`rules: [${a.rules.map((r) => `"${r}"`).join(", ")}]`);
+                        parts.push(`reason: "${a.reason}"`);
+                        return `  - { ${parts.join(", ")} }`;
+                      }).join("\n")
+                    : "  (none)";
+
+                  const md = [
+                    "# Task Config Refinement Request",
+                    "",
+                    "## Current Task Config",
+                    "",
+                    "```yaml",
+                    `name: "${name}"`,
+                    `connection: "${connection}"`,
+                    `scan:`,
+                    `  type: "${scanType}"`,
+                    `  mode: "${scanMode}"`,
+                    `  paths:`,
+                    `    include: [${includeGlobs.split(",").map((g) => `"${g.trim()}"`).join(", ")}]`,
+                    `    exclude: [${excludeGlobs.split(",").map((g) => `"${g.trim()}"`).join(", ")}]`,
+                    scanType === "pattern" ? `  rules:\n${rulesYaml}` : "",
+                    `  allowlist:\n${allowlistYaml}`,
+                    "```",
+                    "",
+                    "## Refinement Request",
+                    "",
+                    refinementPrompt.trim(),
+                    "",
+                    "## Instructions",
+                    "",
+                    "Based on the refinement request above, suggest specific changes to the task config. Provide your suggestions as YAML snippets that can be pasted back into the config. You may suggest:",
+                    "- New or modified allowlist entries",
+                    "- Rule changes (new patterns, modified severity, etc.)",
+                    "- Path include/exclude adjustments",
+                    "",
+                    "Format each suggestion as a YAML block with a brief explanation of what it does.",
+                  ].filter(Boolean).join("\n");
+
+                  navigator.clipboard.writeText(md).then(() => {
+                    setRefinementCopied(true);
+                    toast({ title: "Copied to clipboard", description: "Task config + refinement prompt copied — paste into your LLM" });
+                    setTimeout(() => setRefinementCopied(false), 2500);
+                  });
+                }}
+              >
+                {refinementCopied ? (
+                  <Check className="w-3.5 h-3.5" />
+                ) : (
+                  <ClipboardCopy className="w-3.5 h-3.5" />
+                )}
+                {refinementCopied ? "Copied!" : "Generate Suggestions"}
+              </Button>
             </CardContent>
           </Card>
 

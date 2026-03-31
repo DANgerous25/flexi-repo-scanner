@@ -23,6 +23,18 @@ class TaskToggleRequest(BaseModel):
     active: bool
 
 
+class AllowlistEntryRequest(BaseModel):
+    file: str = ""
+    pattern: str = ""
+    match: str = ""
+    rules: list[str] = []
+    reason: str = ""
+
+
+class AllowlistRequest(BaseModel):
+    entries: list[AllowlistEntryRequest]
+
+
 @router.get("")
 async def list_tasks():
     """List all tasks with their current states."""
@@ -130,6 +142,28 @@ async def copy_task(task_id: str):
     new_task = templates.copy_as_template(task)
     config_loader.save_task(new_task)
     return {"id": new_task.id, "name": new_task.name, "message": "Task copied"}
+
+
+@router.post("/{task_id}/allowlist")
+async def add_allowlist_entries(task_id: str, req: AllowlistRequest):
+    """Append entries to a task's scan allowlist."""
+    task = config_loader.load_task(task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+
+    from backend.config import AllowlistEntry
+
+    for entry in req.entries:
+        task.scan.allowlist.append(AllowlistEntry(
+            file=entry.file,
+            pattern=entry.pattern,
+            match=entry.match,
+            rules=entry.rules,
+            reason=entry.reason,
+        ))
+
+    config_loader.save_task(task)
+    return {"allowlist": [e.model_dump() for e in task.scan.allowlist]}
 
 
 @router.get("/{task_id}/results")

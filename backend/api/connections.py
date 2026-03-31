@@ -73,6 +73,51 @@ async def delete_connection(conn_id: str):
     return {"message": "Connection deleted"}
 
 
+@router.get("/{conn_id}/file")
+async def get_file_content(conn_id: str, path: str, ref: str = "main"):
+    """Fetch a file's content from GitHub via the connection."""
+    conn = config_loader.get_connection(conn_id)
+    if not conn:
+        raise HTTPException(404, "Connection not found")
+
+    client = GitHubClient(owner=conn.owner, repo=conn.repo, token=conn.token)
+    try:
+        resp = await client.client.get(
+            f"{client.repo_path}/contents/{path}",
+            params={"ref": ref},
+        )
+        if resp.status_code == 404:
+            raise HTTPException(404, "File not found")
+        resp.raise_for_status()
+        data = resp.json()
+
+        import base64
+        content = ""
+        size = data.get("size", 0)
+        sha = data.get("sha", "")
+
+        if data.get("encoding") == "base64" and data.get("content"):
+            raw = base64.b64decode(data["content"])
+            content = raw.decode("utf-8", errors="ignore")
+        elif data.get("sha"):
+            blob_content = await client._get_blob_content(data["sha"])
+            content = blob_content or ""
+
+        return {
+            "path": path,
+            "content": content,
+            "encoding": "utf-8",
+            "size": size,
+            "sha": sha,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Failed to fetch file: {str(e)}")
+    finally:
+        await client.close()
+
+
 @router.post("/{conn_id}/test")
 async def test_connection(conn_id: str):
     """Test a GitHub connection."""
