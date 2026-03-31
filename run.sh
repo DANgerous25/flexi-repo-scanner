@@ -12,11 +12,12 @@ else
   exit 1
 fi
 
-# Load environment variables
+# Load environment paths (FRS_CONFIG_DIR, FRS_DATA_DIR)
+# Secrets loaded from encrypted vault at startup
 if [[ -f ".env" ]]; then
   source .env
 else
-  echo "Warning: .env not found. Run ./setup.sh or create .env with your API keys."
+  echo "Warning: .env not found. Run ./setup.sh first."
 fi
 
 # Start server

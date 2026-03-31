@@ -22,6 +22,10 @@ frontend/.vite/
 .env
 .env.*
 
+# Encrypted secrets vault
+secret.key
+secrets.enc
+
 # IDE
 .idea/
 .vscode/

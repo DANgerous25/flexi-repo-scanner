@@ -20,10 +20,20 @@ _ENV_RE = re.compile(r"\$\{([^}]+)\}")
 
 
 def _interpolate(value: Any) -> Any:
-    """Replace ${ENV_VAR} references with environment variable values."""
+    """Replace ${ENV_VAR} references — checks encrypted vault first, then env."""
     if isinstance(value, str):
         def _replace(m: re.Match) -> str:
-            return os.environ.get(m.group(1), m.group(0))
+            var_name = m.group(1)
+            # Try the vault first
+            try:
+                from backend.storage.secrets import get_vault
+                vault = get_vault()
+                vault_val = vault.get(var_name)
+                if vault_val is not None:
+                    return vault_val
+            except Exception:
+                pass  # Vault not initialised yet — fall back to env
+            return os.environ.get(var_name, m.group(0))
         return _ENV_RE.sub(_replace, value)
     if isinstance(value, dict):
         return {k: _interpolate(v) for k, v in value.items()}

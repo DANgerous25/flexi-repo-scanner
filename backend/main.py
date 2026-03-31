@@ -25,6 +25,14 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Startup and shutdown logic."""
     logger.info("Starting Flexi Repo Scanner")
+    # Initialise encrypted secrets vault
+    try:
+        from backend.storage.secrets import get_vault
+        vault = get_vault()
+        vault.export_to_env()
+        logger.info("Secrets vault loaded (%d keys)", len(vault.list_keys()))
+    except Exception as exc:
+        logger.warning("Secrets vault not available: %s", exc)
     # Ensure database is initialised
     await db.get_db()
     # Start scheduler

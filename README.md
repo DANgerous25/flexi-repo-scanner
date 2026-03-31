@@ -81,7 +81,7 @@ retention:
 
 The `fallback_order` defines which provider to try next when one fails. Unset API keys (`${...}` with no matching env var) are automatically skipped.
 
-Environment variables are interpolated at runtime — secrets live in `.env` (gitignored), never in config files.
+Environment variables are interpolated at runtime — secrets are stored in an encrypted vault (`data/secrets.enc`), never in plain-text config files.
 
 ### GitHub Connections — `config/connections.yaml`
 
@@ -217,7 +217,11 @@ All endpoints prefixed with `/api/`:
 ## Security
 
 - No authentication — localhost only (single user, self-hosted)
-- Secrets via environment variables or gitignored config files
+- **Encrypted secrets vault** — the setup wizard encrypts all API keys and passwords using AES-256 (Fernet)
+  - Encryption key: `data/secret.key` (chmod 600)
+  - Encrypted vault: `data/secrets.enc`
+  - No plain-text secrets in `.env` or config files
+  - YAML configs use `${VAR}` placeholders resolved at runtime from the vault
 - GitHub tokens stored locally, minimum scope: `repo` or `public_repo`
 - No telemetry, fully offline-capable with Ollama
 

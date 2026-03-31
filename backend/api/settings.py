@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -9,7 +11,33 @@ from backend.config import AppSettings
 from backend.llm import router as llm
 from backend.storage import config_loader
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+
+# ── Vault helpers ─────────────────────────────────────────────────────
+
+# Mapping of provider names → env-var names for API keys
+_PROVIDER_ENV_MAP: dict[str, str] = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+    "xai": "XAI_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+}
+
+
+def _store_secret(key: str, value: str) -> None:
+    """Store a secret in the encrypted vault (best-effort)."""
+    try:
+        from backend.storage.secrets import get_vault
+        vault = get_vault()
+        vault.set(key, value)
+        vault.save()
+    except Exception as exc:
+        logger.warning("Could not store secret %s in vault: %s", key, exc)
 
 
 @router.get("")
@@ -40,14 +68,27 @@ async def update_settings(data: dict):
 
     # Merge — don't overwrite masked secrets
     if "smtp" in data:
-        if data["smtp"].get("password") == "***":
+        pwd = data["smtp"].get("password", "")
+        if pwd == "***":
             data["smtp"]["password"] = current_data["smtp"]["password"]
+        elif pwd and not pwd.startswith("${"):
+            # Real new password — store in vault, keep placeholder in YAML
+            _store_secret("SMTP_PASSWORD", pwd)
+            data["smtp"]["password"] = "${SMTP_PASSWORD}"
 
     if "llm" in data and "providers" in data.get("llm", {}):
         for provider, cfg in data["llm"]["providers"].items():
-            if isinstance(cfg, dict) and cfg.get("api_key", "").startswith("***"):
+            if not isinstance(cfg, dict):
+                continue
+            api_key = cfg.get("api_key", "")
+            if api_key.startswith("***"):
                 existing = current_data.get("llm", {}).get("providers", {}).get(provider, {})
                 cfg["api_key"] = existing.get("api_key", "")
+            elif api_key and not api_key.startswith("${"):
+                # Real new key — store in vault
+                env_var = _PROVIDER_ENV_MAP.get(provider, f"{provider.upper()}_API_KEY")
+                _store_secret(env_var, api_key)
+                cfg["api_key"] = "${" + env_var + "}"
 
     # Apply updates
     merged = {**current_data, **data}
@@ -101,3 +142,15 @@ async def list_models():
     """List all configured LLM models."""
     settings = config_loader.load_settings()
     return llm.get_available_models(settings)
+
+
+@router.get("/secrets")
+async def list_secrets():
+    """List secret names (not values) stored in the vault."""
+    try:
+        from backend.storage.secrets import get_vault
+        vault = get_vault()
+        keys = vault.list_keys()
+        return {"keys": keys, "count": len(keys)}
+    except Exception:
+        return {"keys": [], "count": 0}
