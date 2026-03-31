@@ -134,7 +134,8 @@ class ContextFilter(BaseModel):
 
 
 class LlmScanConfig(BaseModel):
-    model: str = ""
+    model: str = ""  # keep for backwards compat
+    preferred_models: list[str] = Field(default_factory=list)  # up to 3, in priority order
     prompt_template: str = ""
     prompt: str = ""
     focus: list[str] = Field(default_factory=list)

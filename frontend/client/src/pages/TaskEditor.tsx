@@ -14,7 +14,9 @@ import { SeverityBadge } from "@/components/StatusBadge";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -75,7 +77,7 @@ export default function TaskEditor() {
   const [includeGlobs, setIncludeGlobs] = useState("**/*");
   const [excludeGlobs, setExcludeGlobs] = useState("node_modules/, dist/");
   const [rules, setRules] = useState<PatternRule[]>([]);
-  const [llmModel, setLlmModel] = useState("");
+  const [preferredModels, setPreferredModels] = useState<string[]>(["", "", ""]);
   const [promptTemplate, setPromptTemplate] = useState("");
   const [focusTags, setFocusTags] = useState("");
   const [maxFiles, setMaxFiles] = useState("50");
@@ -101,6 +103,29 @@ export default function TaskEditor() {
     tokens: { input: number; output: number };
   } | null>(null);
 
+  // Sort models: configured first, then unconfigured; alphabetical by provider then name within each group
+  const sortedModels = useMemo(() => {
+    const sorted = [...models].sort((a, b) => {
+      if (a.configured !== b.configured) return a.configured ? -1 : 1;
+      const provCmp = a.provider.localeCompare(b.provider);
+      if (provCmp !== 0) return provCmp;
+      return a.name.localeCompare(b.name);
+    });
+    return sorted;
+  }, [models]);
+
+  // Group models by provider, split into configured and unconfigured
+  const modelGroups = useMemo(() => {
+    const configuredByProvider: Record<string, LLMModel[]> = {};
+    const unconfiguredByProvider: Record<string, LLMModel[]> = {};
+    for (const m of sortedModels) {
+      const bucket = m.configured ? configuredByProvider : unconfiguredByProvider;
+      if (!bucket[m.provider]) bucket[m.provider] = [];
+      bucket[m.provider].push(m);
+    }
+    return { configured: configuredByProvider, unconfigured: unconfiguredByProvider };
+  }, [sortedModels]);
+
   // Initialize form from fetched task
   if (existingTask && !initialized) {
     setName(existingTask.name || "");
@@ -113,7 +138,12 @@ export default function TaskEditor() {
     setIncludeGlobs(existingTask.scan.paths.include.join(", ") || "**/*");
     setExcludeGlobs(existingTask.scan.paths.exclude.join(", ") || "node_modules/, dist/");
     setRules(existingTask.scan.rules || []);
-    setLlmModel(existingTask.scan.llm?.model || "");
+    const pm = existingTask.scan.llm?.preferred_models;
+    if (pm && pm.length > 0) {
+      setPreferredModels([pm[0] || "", pm[1] || "", pm[2] || ""]);
+    } else {
+      setPreferredModels([existingTask.scan.llm?.model || "", "", ""]);
+    }
     setPromptTemplate(existingTask.scan.llm?.prompt_template || "");
     setFocusTags(existingTask.scan.llm?.focus?.join(", ") || "");
     setMaxFiles(existingTask.scan.llm?.max_files_per_run?.toString() || "50");
@@ -175,7 +205,8 @@ export default function TaskEditor() {
         ...(scanType === "llm-review"
           ? {
               llm: {
-                model: llmModel,
+                model: preferredModels[0] || "",
+                preferred_models: preferredModels.filter(Boolean),
                 prompt_template: promptTemplate || undefined,
                 focus: focusTags ? focusTags.split(",").map((t) => t.trim()).filter(Boolean) : undefined,
                 max_files_per_run: maxFiles ? parseInt(maxFiles, 10) : undefined,
@@ -364,7 +395,7 @@ scan:
     include: [${includeGlobs.split(",").map((g) => `"${g.trim()}"`).join(", ")}]
     exclude: [${excludeGlobs.split(",").map((g) => `"${g.trim()}"`).join(", ")}]
 ${scanType === "pattern" ? `  rules:\n${rules.map((r) => `    - id: "${r.id}"\n      name: "${r.name}"\n      pattern: '${r.pattern}'\n      severity: "${r.severity}"${r.case_sensitive === false ? "\n      case_sensitive: false" : ""}${r.context_requires ? `\n      context_requires: '${r.context_requires}'` : ""}`).join("\n")}` : ""}
-${scanType === "llm-review" ? `  llm:\n    model: "${llmModel}"\n    prompt_template: "${promptTemplate}"\n    focus: [${focusTags.split(",").map((t) => `"${t.trim()}"`).join(", ")}]\n    max_files_per_run: ${maxFiles}` : ""}
+${scanType === "llm-review" ? `  llm:\n    model: "${preferredModels[0] || ""}"\n    preferred_models: [${preferredModels.filter(Boolean).map((m) => `"${m}"`).join(", ")}]\n    prompt_template: "${promptTemplate}"\n    focus: [${focusTags.split(",").map((t) => `"${t.trim()}"`).join(", ")}]\n    max_files_per_run: ${maxFiles}` : ""}
 actions:
 ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.recipients ? `\n    recipients: [${a.recipients.map((r) => `"${r}"`).join(", ")}]` : ""}`).join("\n")}`;
 
@@ -766,20 +797,47 @@ ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.reci
                 <CardTitle className="text-sm font-semibold">LLM Configuration</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
+                <div className="grid grid-cols-3 gap-3">
+                  {(["Primary Model", "Fallback 1", "Fallback 2"] as const).map((label, idx) => (
+                    <div key={idx}>
+                      <Label className="text-xs text-muted-foreground">{label}</Label>
+                      <Select
+                        value={preferredModels[idx] || "__none__"}
+                        onValueChange={(v) => {
+                          const updated = [...preferredModels];
+                          updated[idx] = v === "__none__" ? "" : v;
+                          setPreferredModels(updated);
+                        }}
+                      >
+                        <SelectTrigger className="mt-1 h-9 text-sm bg-background border-border" data-testid={`select-llm-model-${idx}`}>
+                          <SelectValue placeholder="Select model" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">None</SelectItem>
+                          {Object.entries(modelGroups.configured).map(([provider, provModels]) => (
+                            <SelectGroup key={`configured-${provider}`}>
+                              <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">{provider}</SelectLabel>
+                              {provModels.map((m) => (
+                                <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                              ))}
+                            </SelectGroup>
+                          ))}
+                          {Object.entries(modelGroups.unconfigured).map(([provider, provModels]) => (
+                            <SelectGroup key={`unconfigured-${provider}`}>
+                              <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">{provider}</SelectLabel>
+                              {provModels.map((m) => (
+                                <SelectItem key={m.id} value={m.id} disabled className="opacity-40">
+                                  {m.name} (not connected)
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Model</Label>
-                    <Select value={llmModel} onValueChange={setLlmModel}>
-                      <SelectTrigger className="mt-1 h-9 text-sm bg-background border-border" data-testid="select-llm-model">
-                        <SelectValue placeholder="Select model" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {models.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
                   <div>
                     <Label className="text-xs text-muted-foreground">Prompt Template</Label>
                     <Select value={promptTemplate} onValueChange={setPromptTemplate}>

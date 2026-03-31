@@ -55,6 +55,7 @@ export interface Task {
     rules?: PatternRule[];
     llm?: {
       model: string;
+      preferred_models?: string[];
       prompt_template?: string;
       prompt?: string;
       focus?: string[];
@@ -165,6 +166,8 @@ export interface LLMProvider {
 export interface LLMModel {
   id: string;
   name: string;
+  provider: string;
+  configured: boolean;
 }
 
 // ── Notification ─────────────────────────────────────────

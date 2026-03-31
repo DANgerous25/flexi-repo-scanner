@@ -181,10 +181,10 @@ export const mockSettings: Settings = {
   smtp: { host: "smtp.gmail.com", port: 587, tls: true, username: "", password: "", from_address: "scanner@yourdomain.com", from_name: "Flexi Repo Scanner" },
   llm: {
     providers: {
-      anthropic: { api_key: "sk-ant-***", models: [{ id: "anthropic/claude-sonnet-4-6", name: "Claude Sonnet 4.5" }, { id: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5" }] },
-      openai: { api_key: "sk-***", models: [{ id: "openai/gpt-4.1-mini", name: "GPT-4.1 Mini" }, { id: "openai/gpt-4.1", name: "GPT-4.1" }] },
-      groq: { api_key: "", models: [{ id: "groq/llama-3.3-70b-versatile", name: "Llama 3.3 70B" }] },
-      ollama: { base_url: "http://localhost:11434", models: [{ id: "ollama/qwen3:14b", name: "Qwen 3 14B (local)" }] },
+      anthropic: { api_key: "sk-ant-***", models: [{ id: "anthropic/claude-sonnet-4-6", name: "Claude Sonnet 4.5", provider: "anthropic", configured: true }, { id: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "anthropic", configured: true }] },
+      openai: { api_key: "sk-***", models: [{ id: "openai/gpt-4.1-mini", name: "GPT-4.1 Mini", provider: "openai", configured: true }, { id: "openai/gpt-4.1", name: "GPT-4.1", provider: "openai", configured: true }] },
+      groq: { api_key: "", models: [{ id: "groq/llama-3.3-70b-versatile", name: "Llama 3.3 70B", provider: "groq", configured: false }] },
+      ollama: { base_url: "http://localhost:11434", models: [{ id: "ollama/qwen3:14b", name: "Qwen 3 14B (local)", provider: "ollama", configured: true }] },
     },
   },
   retention: { results_days: 30, max_days: 0 },
@@ -199,10 +199,10 @@ export const mockNotifications: Notification[] = [
 ];
 
 export const mockModels: LLMModel[] = [
-  { id: "anthropic/claude-sonnet-4-6", name: "Claude Sonnet 4.5" },
-  { id: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5" },
-  { id: "openai/gpt-4.1-mini", name: "GPT-4.1 Mini" },
-  { id: "openai/gpt-4.1", name: "GPT-4.1" },
-  { id: "groq/llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
-  { id: "ollama/qwen3:14b", name: "Qwen 3 14B (local)" },
+  { id: "anthropic/claude-sonnet-4-6", name: "Claude Sonnet 4.5", provider: "anthropic", configured: true },
+  { id: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "anthropic", configured: true },
+  { id: "openai/gpt-4.1-mini", name: "GPT-4.1 Mini", provider: "openai", configured: true },
+  { id: "openai/gpt-4.1", name: "GPT-4.1", provider: "openai", configured: true },
+  { id: "groq/llama-3.3-70b-versatile", name: "Llama 3.3 70B", provider: "groq", configured: false },
+  { id: "ollama/qwen3:14b", name: "Qwen 3 14B (local)", provider: "ollama", configured: true },
 ];
