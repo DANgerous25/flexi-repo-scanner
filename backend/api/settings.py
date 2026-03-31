@@ -116,13 +116,17 @@ async def test_smtp():
     msg.set_content("This is a test email from Flexi Repo Scanner.")
 
     try:
+        # Port 465 = implicit SSL (use_tls), port 587 = STARTTLS (start_tls)
+        implicit_ssl = smtp.tls and smtp.port == 465
+        starttls = smtp.tls and not implicit_ssl
         await aiosmtplib.send(
             msg,
             hostname=smtp.host,
             port=smtp.port,
             username=smtp.username or None,
             password=smtp.password or None,
-            use_tls=smtp.tls,
+            use_tls=implicit_ssl,
+            start_tls=starttls,
         )
         return {"ok": True, "message": "Test email sent"}
     except Exception as e:

@@ -37,13 +37,17 @@ async def send(
     msg.set_content(body)
 
     try:
+        # Port 465 = implicit SSL (use_tls), port 587 = STARTTLS (start_tls)
+        implicit_ssl = settings.smtp.tls and settings.smtp.port == 465
+        starttls = settings.smtp.tls and not implicit_ssl
         await aiosmtplib.send(
             msg,
             hostname=settings.smtp.host,
             port=settings.smtp.port,
             username=settings.smtp.username or None,
             password=settings.smtp.password or None,
-            use_tls=settings.smtp.tls,
+            use_tls=implicit_ssl,
+            start_tls=starttls,
         )
         logger.info(f"Email sent to {recipients} for task {task.id}")
         return True
