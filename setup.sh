@@ -49,17 +49,11 @@ ask() {
 ask_secret() {
   local prompt="$1"
   local var_name="$2"
-  # Use -s for hidden input, but some terminals have issues with
-  # special chars (@, capitals) in raw mode. Fall back gracefully.
-  echo -ne "  ${prompt} ${DIM}(input hidden)${RESET}: "
-  if read -rs input 2>/dev/null; then
-    echo ""
-  else
-    # Fallback: visible input if -s fails
-    echo ""
-    echo -ne "  ${prompt}: "
-    read -r input
-  fi
+  # Note: we use visible input because read -s swallows special chars
+  # (@, etc.) on many terminals/SSH sessions. Secrets are encrypted
+  # in the vault immediately after entry and never logged.
+  echo -ne "  ${prompt}: "
+  read -r input
   eval "$var_name='$input'"
 }
 
@@ -520,9 +514,8 @@ for entry in "${CLOUD_PROVIDERS[@]}"; do
   IFS='|' read -r pname env_var default_model display_name <<< "$entry"
   CLOUD_COUNT=$((CLOUD_COUNT + 1))
 
-  echo -ne "  ${DIM}[${CLOUD_COUNT}/${TOTAL_CLOUD}]${RESET} ${BOLD}${pname}${RESET} API key ${DIM}(hidden)${RESET}: "
-  read -rs key 2>/dev/null || read -r key
-  echo ""
+  echo -ne "  ${DIM}[${CLOUD_COUNT}/${TOTAL_CLOUD}]${RESET} ${BOLD}${pname}${RESET} API key: "
+  read -r key
 
   if [[ -n "$key" ]]; then
     ok "${pname} configured"
