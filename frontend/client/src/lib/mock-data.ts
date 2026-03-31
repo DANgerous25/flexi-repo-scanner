@@ -138,9 +138,9 @@ export const mockTasks: Task[] = [
 ];
 
 export const mockConnections: Connection[] = [
-  { id: "my-project", name: "My Project", owner: "falconar", repo: "my-project", default_branch: "main", status: "connected", rate_limit_remaining: 4850, rate_limit_reset: "2026-03-31T09:00:00Z" },
-  { id: "api-server", name: "API Server", owner: "falconar", repo: "api-server", default_branch: "main", status: "error", rate_limit_remaining: 0, rate_limit_reset: "2026-03-31T08:30:00Z" },
-  { id: "frontend-app", name: "Frontend App", owner: "falconar", repo: "frontend-app", default_branch: "develop", status: "connected", rate_limit_remaining: 4990, rate_limit_reset: "2026-03-31T09:00:00Z" },
+  { id: "my-project", name: "My Project", owner: "acme-org", repo: "my-project", default_branch: "main", status: "connected", rate_limit_remaining: 4850, rate_limit_reset: "2026-03-31T09:00:00Z" },
+  { id: "api-server", name: "API Server", owner: "acme-org", repo: "api-server", default_branch: "main", status: "error", rate_limit_remaining: 0, rate_limit_reset: "2026-03-31T08:30:00Z" },
+  { id: "frontend-app", name: "Frontend App", owner: "acme-org", repo: "frontend-app", default_branch: "develop", status: "connected", rate_limit_remaining: 4990, rate_limit_reset: "2026-03-31T09:00:00Z" },
 ];
 
 export const mockRunHistory: TaskRun[] = [
@@ -152,7 +152,7 @@ export const mockRunHistory: TaskRun[] = [
 
 export const mockFindings: Finding[] = [
   { id: "f-1", run_id: "run-1", file: "src/config/database.py", line: 42, severity: "critical", category: "Credentials", rule_id: "hardcoded-secret", rule_name: "Hardcoded API Key", matched_text: "api_key = \"sk-proj-abc123...\"" },
-  { id: "f-2", run_id: "run-1", file: "src/utils/email.py", line: 15, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "dan@falconar.co.uk" },
+  { id: "f-2", run_id: "run-1", file: "src/utils/email.py", line: 15, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "user@example-corp.com" },
   { id: "f-3", run_id: "run-1", file: "src/utils/email.py", line: 28, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "admin@internal.corp" },
   { id: "f-4", run_id: "run-1", file: "README.md", line: 5, severity: "critical", category: "AI Attribution", rule_id: "ai-authorship", rule_name: "AI Tool Attribution", matched_text: "Built with Claude Code" },
   { id: "f-5", run_id: "run-1", file: "docs/setup.md", line: 102, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "john.smith@company.com" },
