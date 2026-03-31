@@ -39,6 +39,7 @@ import {
   ClipboardCopy,
   Check,
   ShieldOff,
+  ShieldCheck,
   StopCircle,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
@@ -229,7 +230,13 @@ export default function TaskResults() {
             </Button>
           </Link>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">{task.name}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-foreground">{task.name}</h2>
+              <Badge variant="outline" className="text-[10px] gap-1 border-emerald-500/30 text-emerald-400">
+                <ShieldCheck className="w-3 h-3" />
+                Allowlist: {task.scan?.allowlist?.length ?? 0} {(task.scan?.allowlist?.length ?? 0) === 1 ? "entry" : "entries"}
+              </Badge>
+            </div>
             <p className="text-xs text-muted-foreground">{task.description}</p>
           </div>
         </div>
@@ -496,6 +503,7 @@ export default function TaskResults() {
                             taskId={taskId!}
                             onAllowlisted={() => {
                               setAllowlistedIds((prev) => new Set([...prev, finding.id]));
+                              queryClient.invalidateQueries({ queryKey: [`/api/tasks/${taskId}`] });
                             }}
                           />
                         </TableCell>

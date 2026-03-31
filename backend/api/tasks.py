@@ -225,6 +225,25 @@ async def update_task(task_id: str, req: TaskCreateRequest):
     if not existing:
         raise HTTPException(404, "Task not found")
 
+    # Merge allowlists: keep incoming entries, plus any existing entries that
+    # were added externally (e.g. from the Results page) and aren't duplicates.
+    incoming_allowlist = req.config.get("scan", {}).get("allowlist") or []
+    existing_allowlist = [e.model_dump() for e in existing.scan.allowlist]
+
+    incoming_keys = {
+        (e.get("file", ""), e.get("pattern", ""), e.get("match", ""))
+        for e in incoming_allowlist
+    }
+    for entry in existing_allowlist:
+        key = (entry.get("file", ""), entry.get("pattern", ""), entry.get("match", ""))
+        if key not in incoming_keys:
+            incoming_allowlist.append(entry)
+
+    # Write merged allowlist back into the config dict
+    if "scan" not in req.config:
+        req.config["scan"] = {}
+    req.config["scan"]["allowlist"] = incoming_allowlist
+
     task = TaskConfig(**{**req.config, "id": task_id})
     config_loader.save_task(task)
     settings = config_loader.load_settings()

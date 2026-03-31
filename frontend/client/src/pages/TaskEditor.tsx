@@ -138,7 +138,27 @@ export default function TaskEditor() {
     },
   });
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    // For existing tasks, re-fetch to merge any externally-added allowlist entries
+    let mergedAllowlist = allowlist;
+    if (taskId && !isNew) {
+      try {
+        const freshTask = await fetchTask(taskId);
+        const serverAllowlist = freshTask.scan?.allowlist || [];
+        const localKeys = new Set(
+          mergedAllowlist.map((e) => `${e.file || ""}|${e.pattern || ""}|${e.match || ""}`)
+        );
+        for (const entry of serverAllowlist) {
+          const key = `${entry.file || ""}|${entry.pattern || ""}|${entry.match || ""}`;
+          if (!localKeys.has(key)) {
+            mergedAllowlist = [...mergedAllowlist, entry];
+          }
+        }
+      } catch {
+        // If re-fetch fails, proceed with local state — backend merge is the safety net
+      }
+    }
+
     const config: Record<string, unknown> = {
       name,
       description,
@@ -162,7 +182,7 @@ export default function TaskEditor() {
               },
             }
           : {}),
-        allowlist: allowlist.length > 0 ? allowlist : undefined,
+        allowlist: mergedAllowlist,
       },
       actions,
       task_builder_prompt: builderPrompt || undefined,
