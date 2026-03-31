@@ -1,9 +1,11 @@
-import { useState } from "react";
 import { Link } from "wouter";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { mockNotifications } from "@/lib/mock-data";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { fetchNotifications, markNotificationRead, markAllNotificationsRead } from "@/lib/api";
 import type { Notification } from "@/lib/types";
 import {
   Bell,
@@ -23,19 +25,52 @@ const typeConfig: Record<string, { icon: typeof AlertTriangle; className: string
 };
 
 export default function Notifications() {
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const { data: notifications = [], isLoading, error } = useQuery<Notification[]>({
+    queryKey: ["/api/notifications"],
+    queryFn: fetchNotifications,
+  });
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const markAsRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
-  };
+  const markReadMutation = useMutation({
+    mutationFn: (id: string) => markNotificationRead(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+    },
+  });
 
-  const markAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  };
+  const markAllReadMutation = useMutation({
+    mutationFn: () => markAllNotificationsRead(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4 max-w-[700px]">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-8 w-32" />
+        </div>
+        {[1,2,3].map(i => <Skeleton key={i} className="h-[80px] rounded-lg" />)}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <AlertTriangle className="w-8 h-8 text-muted-foreground mb-3" />
+        <p className="text-sm text-muted-foreground">Failed to load notifications: {(error as Error).message}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 max-w-[700px]">
@@ -51,7 +86,8 @@ export default function Notifications() {
             variant="outline"
             size="sm"
             className="h-8 text-xs gap-1.5"
-            onClick={markAllRead}
+            onClick={() => markAllReadMutation.mutate()}
+            disabled={markAllReadMutation.isPending}
             data-testid="button-mark-all-read"
           >
             <CheckCheck className="w-3.5 h-3.5" />
@@ -71,7 +107,7 @@ export default function Notifications() {
       ) : (
         <div className="space-y-2">
           {notifications.map((notification) => {
-            const config = typeConfig[notification.type];
+            const config = typeConfig[notification.type] || typeConfig.info;
             const Icon = config.icon;
             return (
               <Card
@@ -79,7 +115,7 @@ export default function Notifications() {
                 className={`bg-card border-card-border transition-colors cursor-pointer ${
                   !notification.read ? "border-l-2 border-l-primary" : ""
                 }`}
-                onClick={() => markAsRead(notification.id)}
+                onClick={() => { if (!notification.read) markReadMutation.mutate(notification.id); }}
                 data-testid={`card-notification-${notification.id}`}
               >
                 <CardContent className="p-4">

@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -19,7 +21,9 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RunStatusBadge } from "@/components/StatusBadge";
-import { mockTasks, mockBenchmarks, mockModels } from "@/lib/mock-data";
+import { useToast } from "@/hooks/use-toast";
+import { fetchTasks, fetchBenchmarks, fetchModels, startBenchmark } from "@/lib/api";
+import type { Task, BenchmarkResult, LLMModel } from "@/lib/types";
 import {
   FlaskConical,
   Play,
@@ -29,14 +33,46 @@ import {
   Hash,
   TrendingUp,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { format } from "date-fns";
 
 export default function Benchmarks() {
   const [selectedTask, setSelectedTask] = useState("");
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
-  const llmTasks = mockTasks.filter((t) => t.scan.type === "llm-review");
+  const { data: tasks = [] } = useQuery<Task[]>({
+    queryKey: ["/api/tasks"],
+    queryFn: fetchTasks,
+  });
+
+  const { data: benchmarks = [], isLoading: benchmarksLoading } = useQuery<BenchmarkResult[]>({
+    queryKey: ["/api/benchmarks"],
+    queryFn: fetchBenchmarks,
+  });
+
+  const { data: models = [] } = useQuery<LLMModel[]>({
+    queryKey: ["/api/settings/models"],
+    queryFn: fetchModels,
+  });
+
+  const runBenchmarkMutation = useMutation({
+    mutationFn: ({ taskId, modelIds }: { taskId: string; modelIds: string[] }) =>
+      startBenchmark(taskId, modelIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/benchmarks"] });
+      toast({ title: "Benchmark started" });
+      setSelectedTask("");
+      setSelectedModels([]);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Benchmark failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const llmTasks = tasks.filter((t) => t.scan.type === "llm-review");
 
   const toggleModel = (modelId: string) => {
     setSelectedModels((prev) =>
@@ -77,7 +113,7 @@ export default function Benchmarks() {
           <div>
             <p className="text-xs text-muted-foreground mb-2">Select models to compare (2-5)</p>
             <div className="flex flex-wrap gap-2">
-              {mockModels.map((model) => (
+              {models.map((model) => (
                 <label
                   key={model.id}
                   className={`flex items-center gap-2 px-3 py-2 rounded-md border cursor-pointer transition-colors text-xs ${
@@ -101,20 +137,27 @@ export default function Benchmarks() {
           <Button
             size="sm"
             className="h-9 gap-1.5"
-            disabled={!selectedTask || selectedModels.length < 2}
+            disabled={!selectedTask || selectedModels.length < 2 || runBenchmarkMutation.isPending}
+            onClick={() => runBenchmarkMutation.mutate({ taskId: selectedTask, modelIds: selectedModels })}
             data-testid="button-run-benchmark"
           >
-            <Play className="w-4 h-4" />
+            {runBenchmarkMutation.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Play className="w-4 h-4" />
+            )}
             Run Benchmark
           </Button>
         </CardContent>
       </Card>
 
       {/* Benchmark Results */}
-      {mockBenchmarks.length > 0 && (
+      {benchmarksLoading ? (
+        <Skeleton className="h-[200px] rounded-lg" />
+      ) : benchmarks.length > 0 ? (
         <div className="space-y-4">
           <h2 className="text-sm font-semibold text-foreground">Previous Results</h2>
-          {mockBenchmarks.map((bench) => (
+          {benchmarks.map((bench) => (
             <Card key={bench.id} className="bg-card border-card-border" data-testid={`card-benchmark-${bench.id}`}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -196,7 +239,7 @@ export default function Benchmarks() {
             </Card>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

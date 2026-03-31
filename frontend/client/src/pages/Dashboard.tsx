@@ -1,10 +1,10 @@
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TaskStateBadge, ScanTypeBadge, RunStatusBadge } from "@/components/StatusBadge";
-import { mockDashboard } from "@/lib/mock-data";
 import {
   ListTodo,
   Zap,
@@ -16,6 +16,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
+import type { DashboardStats } from "@/lib/types";
 
 function StatCard({
   label,
@@ -48,7 +49,47 @@ function StatCard({
 }
 
 export default function Dashboard() {
-  const data = mockDashboard;
+  const { data, isLoading, error } = useQuery<DashboardStats>({
+    queryKey: ["/api/dashboard"],
+    select: (raw: any) => ({
+      total_tasks: raw.stats?.total_tasks ?? 0,
+      active_tasks: raw.stats?.active_tasks ?? 0,
+      findings_today: raw.stats?.findings_today ?? 0,
+      unread_notifications: raw.stats?.unread_notifications ?? 0,
+      tasks: (raw.tasks ?? []).map((t: any) => ({
+        id: t.id,
+        name: t.name,
+        state: t.status ?? t.state ?? "inactive",
+        scan_type: t.type ?? t.scan_type ?? "pattern",
+        last_run: t.last_run,
+        next_run: t.next_run_at ?? t.next_run,
+        findings_count: t.finding_count ?? t.findings_count ?? 0,
+        connection: t.connection,
+      })),
+      recent_runs: raw.recent_runs ?? [],
+      failed_tasks: raw.stats?.failed_tasks ?? raw.failed_tasks ?? [],
+    }),
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6 max-w-[1200px]">
+        <div className="grid grid-cols-4 gap-4">
+          {[1,2,3,4].map(i => <Skeleton key={i} className="h-[80px] rounded-lg" />)}
+        </div>
+        <Skeleton className="h-[300px] rounded-lg" />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <AlertTriangle className="w-8 h-8 text-muted-foreground mb-3" />
+        <p className="text-sm text-muted-foreground">Failed to load dashboard{error ? `: ${error.message}` : ""}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-[1200px]">

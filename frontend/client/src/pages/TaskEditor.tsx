@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useRoute, useLocation, useParams } from "wouter";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { SeverityBadge } from "@/components/StatusBadge";
 import {
   Select,
@@ -16,8 +18,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { mockTasks, mockConnections, mockModels } from "@/lib/mock-data";
-import type { PatternRule, AllowlistEntry, TaskAction, Severity } from "@/lib/types";
+import { useToast } from "@/hooks/use-toast";
+import { fetchTask, createTask, updateTask, fetchConnections, fetchModels } from "@/lib/api";
+import type { Task, Connection, LLMModel, PatternRule, AllowlistEntry, TaskAction, Severity } from "@/lib/types";
 import {
   Save,
   X,
@@ -29,34 +32,121 @@ import {
   ChevronDown,
   ChevronUp,
   GripVertical,
+  AlertTriangle,
 } from "lucide-react";
 
 export default function TaskEditor() {
   const params = useParams();
   const [location, navigate] = useLocation();
   const isNew = location === "/tasks/new";
-
   const taskId = params?.id ?? null;
-  const existingTask = useMemo(() => taskId ? mockTasks.find((t) => t.id === taskId) : null, [taskId]);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
+  const { data: existingTask, isLoading: taskLoading } = useQuery<Task>({
+    queryKey: [`/api/tasks/${taskId}`],
+    queryFn: () => fetchTask(taskId!),
+    enabled: !!taskId && !isNew,
+  });
+
+  const { data: connections = [] } = useQuery<Connection[]>({
+    queryKey: ["/api/connections"],
+    queryFn: fetchConnections,
+  });
+
+  const { data: models = [] } = useQuery<LLMModel[]>({
+    queryKey: ["/api/settings/models"],
+    queryFn: fetchModels,
+  });
+
+  const [initialized, setInitialized] = useState(false);
   const [showYaml, setShowYaml] = useState(false);
-  const [name, setName] = useState(existingTask?.name || "");
-  const [description, setDescription] = useState(existingTask?.description || "");
-  const [connection, setConnection] = useState(existingTask?.connection || "");
-  const [scanType, setScanType] = useState(existingTask?.scan.type || "pattern");
-  const [scanMode, setScanMode] = useState(existingTask?.scan.mode || "full");
-  const [cron, setCron] = useState(existingTask?.schedule.cron || "0 8 * * *");
-  const [timezone, setTimezone] = useState(existingTask?.schedule.timezone || "UTC");
-  const [includeGlobs, setIncludeGlobs] = useState(existingTask?.scan.paths.include.join(", ") || "**/*");
-  const [excludeGlobs, setExcludeGlobs] = useState(existingTask?.scan.paths.exclude.join(", ") || "node_modules/, dist/");
-  const [rules, setRules] = useState<PatternRule[]>(existingTask?.scan.rules || []);
-  const [llmModel, setLlmModel] = useState(existingTask?.scan.llm?.model || "");
-  const [promptTemplate, setPromptTemplate] = useState(existingTask?.scan.llm?.prompt_template || "");
-  const [focusTags, setFocusTags] = useState(existingTask?.scan.llm?.focus?.join(", ") || "");
-  const [maxFiles, setMaxFiles] = useState(existingTask?.scan.llm?.max_files_per_run?.toString() || "50");
-  const [allowlist, setAllowlist] = useState<AllowlistEntry[]>(existingTask?.scan.allowlist || []);
-  const [actions, setActions] = useState<TaskAction[]>(existingTask?.actions || []);
-  const [builderPrompt, setBuilderPrompt] = useState(existingTask?.task_builder_prompt || "");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [connection, setConnection] = useState("");
+  const [scanType, setScanType] = useState("pattern");
+  const [scanMode, setScanMode] = useState("full");
+  const [cron, setCron] = useState("0 8 * * *");
+  const [timezone, setTimezone] = useState("UTC");
+  const [includeGlobs, setIncludeGlobs] = useState("**/*");
+  const [excludeGlobs, setExcludeGlobs] = useState("node_modules/, dist/");
+  const [rules, setRules] = useState<PatternRule[]>([]);
+  const [llmModel, setLlmModel] = useState("");
+  const [promptTemplate, setPromptTemplate] = useState("");
+  const [focusTags, setFocusTags] = useState("");
+  const [maxFiles, setMaxFiles] = useState("50");
+  const [allowlist, setAllowlist] = useState<AllowlistEntry[]>([]);
+  const [actions, setActions] = useState<TaskAction[]>([]);
+  const [builderPrompt, setBuilderPrompt] = useState("");
+
+  // Initialize form from fetched task
+  if (existingTask && !initialized) {
+    setName(existingTask.name || "");
+    setDescription(existingTask.description || "");
+    setConnection(existingTask.connection || "");
+    setScanType(existingTask.scan.type || "pattern");
+    setScanMode(existingTask.scan.mode || "full");
+    setCron(existingTask.schedule.cron || "0 8 * * *");
+    setTimezone(existingTask.schedule.timezone || "UTC");
+    setIncludeGlobs(existingTask.scan.paths.include.join(", ") || "**/*");
+    setExcludeGlobs(existingTask.scan.paths.exclude.join(", ") || "node_modules/, dist/");
+    setRules(existingTask.scan.rules || []);
+    setLlmModel(existingTask.scan.llm?.model || "");
+    setPromptTemplate(existingTask.scan.llm?.prompt_template || "");
+    setFocusTags(existingTask.scan.llm?.focus?.join(", ") || "");
+    setMaxFiles(existingTask.scan.llm?.max_files_per_run?.toString() || "50");
+    setAllowlist(existingTask.scan.allowlist || []);
+    setActions(existingTask.actions || []);
+    setBuilderPrompt(existingTask.task_builder_prompt || "");
+    setInitialized(true);
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: (config: Record<string, unknown>) => {
+      if (isNew) return createTask(config);
+      return updateTask(taskId!, config);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      toast({ title: isNew ? "Task created" : "Task updated" });
+      navigate("/tasks");
+    },
+    onError: (err: Error) => {
+      toast({ title: "Save failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleSave = () => {
+    const config: Record<string, unknown> = {
+      name,
+      description,
+      connection,
+      schedule: { cron, timezone },
+      scan: {
+        mode: scanMode,
+        type: scanType,
+        paths: {
+          include: includeGlobs.split(",").map((g) => g.trim()).filter(Boolean),
+          exclude: excludeGlobs.split(",").map((g) => g.trim()).filter(Boolean),
+        },
+        ...(scanType === "pattern" ? { rules } : {}),
+        ...(scanType === "llm-review"
+          ? {
+              llm: {
+                model: llmModel,
+                prompt_template: promptTemplate || undefined,
+                focus: focusTags ? focusTags.split(",").map((t) => t.trim()).filter(Boolean) : undefined,
+                max_files_per_run: maxFiles ? parseInt(maxFiles, 10) : undefined,
+              },
+            }
+          : {}),
+        allowlist: allowlist.length > 0 ? allowlist : undefined,
+      },
+      actions,
+      task_builder_prompt: builderPrompt || undefined,
+    };
+    saveMutation.mutate(config);
+  };
 
   const addRule = () => {
     setRules([...rules, { id: `rule-${Date.now()}`, name: "", pattern: "", severity: "medium" }]);
@@ -107,6 +197,24 @@ ${scanType === "pattern" ? `  rules:\n${rules.map((r) => `    - id: "${r.id}"\n 
 ${scanType === "llm-review" ? `  llm:\n    model: "${llmModel}"\n    prompt_template: "${promptTemplate}"\n    focus: [${focusTags.split(",").map((t) => `"${t.trim()}"`).join(", ")}]\n    max_files_per_run: ${maxFiles}` : ""}
 actions:
 ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.recipients ? `\n    recipients: [${a.recipients.map((r) => `"${r}"`).join(", ")}]` : ""}`).join("\n")}`;
+
+  if (taskLoading && !isNew) {
+    return (
+      <div className="space-y-6 max-w-[900px]">
+        <Skeleton className="h-[120px] rounded-lg" />
+        <Skeleton className="h-[300px] rounded-lg" />
+      </div>
+    );
+  }
+
+  if (!isNew && taskId && !existingTask && !taskLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <AlertTriangle className="w-8 h-8 text-muted-foreground mb-3" />
+        <p className="text-sm text-muted-foreground">Task not found</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-[900px]">
@@ -186,7 +294,7 @@ ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.reci
                       <SelectValue placeholder="Select connection" />
                     </SelectTrigger>
                     <SelectContent>
-                      {mockConnections.map((c) => (
+                      {connections.map((c) => (
                         <SelectItem key={c.id} value={c.id}>{c.name} ({c.owner}/{c.repo})</SelectItem>
                       ))}
                     </SelectContent>
@@ -354,7 +462,7 @@ ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.reci
                         <SelectValue placeholder="Select model" />
                       </SelectTrigger>
                       <SelectContent>
-                        {mockModels.map((m) => (
+                        {models.map((m) => (
                           <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
                         ))}
                       </SelectContent>
@@ -483,7 +591,7 @@ ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.reci
         <Button variant="outline" onClick={() => navigate("/tasks")} className="h-9" data-testid="button-cancel">
           <X className="w-4 h-4 mr-1.5" /> Cancel
         </Button>
-        <Button className="h-9" data-testid="button-save-task">
+        <Button className="h-9" onClick={handleSave} disabled={saveMutation.isPending} data-testid="button-save-task">
           <Save className="w-4 h-4 mr-1.5" /> {isNew ? "Create Task" : "Save Changes"}
         </Button>
       </div>

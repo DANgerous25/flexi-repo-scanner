@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,7 +31,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { TaskStateBadge, ScanTypeBadge } from "@/components/StatusBadge";
-import { mockTasks } from "@/lib/mock-data";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { fetchTasks, deleteTask, toggleTask, runTask, copyTask } from "@/lib/api";
+import type { Task } from "@/lib/types";
 import {
   Plus,
   Search,
@@ -40,6 +44,7 @@ import {
   Copy,
   Trash2,
   Clock,
+  AlertTriangle,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -47,12 +52,85 @@ export default function Tasks() {
   const [, navigate] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
-  const filteredTasks = mockTasks.filter(
+  const { data: tasks = [], isLoading, error } = useQuery<Task[]>({
+    queryKey: ["/api/tasks"],
+    queryFn: fetchTasks,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteTask(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      toast({ title: "Task deleted" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) => toggleTask(id, active),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Toggle failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const runMutation = useMutation({
+    mutationFn: (id: string) => runTask(id),
+    onSuccess: () => {
+      toast({ title: "Task run triggered" });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Run failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const copyMutation = useMutation({
+    mutationFn: (id: string) => copyTask(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      toast({ title: "Task copied as template" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Copy failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const filteredTasks = tasks.filter(
     (t) =>
       t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       t.connection.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4 max-w-[1200px]">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-9 w-64" />
+          <Skeleton className="h-9 w-28" />
+        </div>
+        <Skeleton className="h-[400px] rounded-lg" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <AlertTriangle className="w-8 h-8 text-muted-foreground mb-3" />
+        <p className="text-sm text-muted-foreground">Failed to load tasks: {error.message}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 max-w-[1200px]">
@@ -129,7 +207,7 @@ export default function Tasks() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    {task.findings_count > 0 ? (
+                    {(task.findings_count ?? 0) > 0 ? (
                       <span className="text-sm font-medium text-cyan-400">{task.findings_count}</span>
                     ) : (
                       <span className="text-sm text-muted-foreground/50">0</span>
@@ -144,7 +222,7 @@ export default function Tasks() {
                   <TableCell className="text-center">
                     <Switch
                       checked={task.active}
-                      onCheckedChange={() => {}}
+                      onCheckedChange={(checked) => toggleMutation.mutate({ id: task.id, active: checked })}
                       className="data-[state=checked]:bg-cyan-500"
                       data-testid={`switch-active-${task.id}`}
                     />
@@ -157,13 +235,13 @@ export default function Tasks() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-40">
-                        <DropdownMenuItem className="text-xs gap-2">
+                        <DropdownMenuItem className="text-xs gap-2" onClick={() => runMutation.mutate(task.id)}>
                           <Play className="w-3.5 h-3.5" /> Run Now
                         </DropdownMenuItem>
                         <DropdownMenuItem className="text-xs gap-2" onClick={() => navigate(`/tasks/${task.id}/edit`)}>
                           <Pencil className="w-3.5 h-3.5" /> Edit
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-xs gap-2">
+                        <DropdownMenuItem className="text-xs gap-2" onClick={() => copyMutation.mutate(task.id)}>
                           <Copy className="w-3.5 h-3.5" /> Copy as Template
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
@@ -197,7 +275,10 @@ export default function Tasks() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => setDeleteTaskId(null)}
+              onClick={() => {
+                if (deleteTaskId) deleteMutation.mutate(deleteTaskId);
+                setDeleteTaskId(null);
+              }}
             >
               Delete
             </AlertDialogAction>

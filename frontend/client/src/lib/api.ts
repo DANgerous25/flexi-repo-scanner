@@ -1,0 +1,193 @@
+import { apiRequest } from "./queryClient";
+import type {
+  Task,
+  Connection,
+  TaskRun,
+  Finding,
+  BenchmarkResult,
+  Settings,
+  Notification,
+  LLMModel,
+  DashboardStats,
+} from "./types";
+
+// ── Generic helpers ─────────────────────────────────────
+
+async function get<T>(url: string): Promise<T> {
+  const res = await apiRequest("GET", url);
+  return res.json();
+}
+
+async function post<T>(url: string, data?: unknown): Promise<T> {
+  const res = await apiRequest("POST", url, data);
+  return res.json();
+}
+
+async function put<T>(url: string, data?: unknown): Promise<T> {
+  const res = await apiRequest("PUT", url, data);
+  return res.json();
+}
+
+async function del(url: string): Promise<void> {
+  await apiRequest("DELETE", url);
+}
+
+// ── Dashboard ───────────────────────────────────────────
+
+export async function fetchDashboard(): Promise<DashboardStats> {
+  const data = await get<any>("/api/dashboard");
+  return {
+    total_tasks: data.stats?.total_tasks ?? 0,
+    active_tasks: data.stats?.active_tasks ?? 0,
+    findings_today: data.stats?.findings_today ?? 0,
+    unread_notifications: data.stats?.unread_notifications ?? 0,
+    tasks: data.tasks ?? [],
+    recent_runs: data.recent_runs ?? [],
+    failed_tasks: data.stats?.failed_tasks ?? data.failed_tasks ?? [],
+  };
+}
+
+// ── Tasks ───────────────────────────────────────────────
+
+function normalizeTask(raw: any): Task {
+  return {
+    ...raw,
+    // API returns state as { status: "...", next_run_at, last_run_id }
+    // Frontend expects state as a string
+    state: typeof raw.state === "object" ? raw.state?.status ?? "inactive" : raw.state ?? "inactive",
+    // API has next_run_at at top level and inside state
+    next_run: raw.next_run_at ?? raw.state?.next_run_at ?? raw.next_run,
+    // findings_count may not exist on list endpoint
+    findings_count: raw.findings_count ?? raw.finding_count ?? 0,
+  };
+}
+
+export async function fetchTasks(): Promise<Task[]> {
+  const raw = await get<any[]>("/api/tasks");
+  return raw.map(normalizeTask);
+}
+
+export async function fetchTask(id: string): Promise<Task> {
+  const raw = await get<any>(`/api/tasks/${encodeURIComponent(id)}`);
+  return normalizeTask(raw);
+}
+
+export async function createTask(config: Record<string, unknown>): Promise<Task> {
+  return post<Task>("/api/tasks", { config });
+}
+
+export async function updateTask(id: string, config: Record<string, unknown>): Promise<Task> {
+  return put<Task>(`/api/tasks/${encodeURIComponent(id)}`, { config });
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  return del(`/api/tasks/${encodeURIComponent(id)}`);
+}
+
+export async function toggleTask(id: string, active: boolean): Promise<void> {
+  await post<unknown>(`/api/tasks/${encodeURIComponent(id)}/toggle`, { active });
+}
+
+export async function runTask(id: string): Promise<void> {
+  await post<unknown>(`/api/tasks/${encodeURIComponent(id)}/run`);
+}
+
+export async function copyTask(id: string): Promise<Task> {
+  return post<Task>(`/api/tasks/${encodeURIComponent(id)}/copy`);
+}
+
+export async function fetchTaskResults(taskId: string): Promise<TaskRun[]> {
+  return get<TaskRun[]>(`/api/tasks/${encodeURIComponent(taskId)}/results`);
+}
+
+// ── Connections ─────────────────────────────────────────
+
+export async function fetchConnections(): Promise<Connection[]> {
+  return get<any[]>("/api/connections").then((list) =>
+    list.map((c) => ({
+      ...c,
+      status: c.status ?? "connected",
+      rate_limit_remaining: c.rate_limit_remaining,
+      rate_limit_reset: c.rate_limit_reset,
+    }))
+  );
+}
+
+export async function createConnection(data: {
+  id: string;
+  name: string;
+  owner: string;
+  repo: string;
+  token: string;
+  default_branch: string;
+}): Promise<Connection> {
+  return post<Connection>("/api/connections", data);
+}
+
+export async function updateConnection(id: string, data: Record<string, unknown>): Promise<Connection> {
+  return put<Connection>(`/api/connections/${encodeURIComponent(id)}`, data);
+}
+
+export async function deleteConnection(id: string): Promise<void> {
+  return del(`/api/connections/${encodeURIComponent(id)}`);
+}
+
+export async function testConnection(id: string): Promise<{ success: boolean; message?: string }> {
+  return post<{ success: boolean; message?: string }>(`/api/connections/${encodeURIComponent(id)}/test`);
+}
+
+// ── Results ─────────────────────────────────────────────
+
+export async function fetchResults(): Promise<TaskRun[]> {
+  return get<TaskRun[]>("/api/results");
+}
+
+export async function fetchRunFindings(runId: string): Promise<Finding[]> {
+  return get<Finding[]>(`/api/results/${encodeURIComponent(runId)}/findings`);
+}
+
+// ── Settings ────────────────────────────────────────────
+
+export async function fetchSettings(): Promise<Settings> {
+  return get<Settings>("/api/settings");
+}
+
+export async function saveSettings(settings: Partial<Settings>): Promise<Settings> {
+  return put<Settings>("/api/settings", settings);
+}
+
+export async function testSmtp(): Promise<{ success: boolean; message?: string }> {
+  return post<{ success: boolean; message?: string }>("/api/settings/test-smtp");
+}
+
+export async function testLlm(modelId: string): Promise<{ success: boolean; message?: string }> {
+  return post<{ success: boolean; message?: string }>(`/api/settings/test-llm/${encodeURIComponent(modelId)}`);
+}
+
+export async function fetchModels(): Promise<LLMModel[]> {
+  return get<LLMModel[]>("/api/settings/models");
+}
+
+// ── Notifications ───────────────────────────────────────
+
+export async function fetchNotifications(): Promise<Notification[]> {
+  return get<Notification[]>("/api/notifications");
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  await put<unknown>(`/api/notifications/${encodeURIComponent(id)}/read`);
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  await post<unknown>("/api/notifications/read-all");
+}
+
+// ── Benchmarks ──────────────────────────────────────────
+
+export async function fetchBenchmarks(): Promise<BenchmarkResult[]> {
+  return get<BenchmarkResult[]>("/api/benchmarks");
+}
+
+export async function startBenchmark(taskId: string, models: string[]): Promise<BenchmarkResult> {
+  return post<BenchmarkResult>("/api/benchmarks", { task_id: taskId, models });
+}

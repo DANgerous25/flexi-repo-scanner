@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,9 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { mockSettings } from "@/lib/mock-data";
+import { useToast } from "@/hooks/use-toast";
+import { fetchSettings, saveSettings, testSmtp, testLlm } from "@/lib/api";
+import type { Settings } from "@/lib/types";
 import {
   Mail,
   Server,
@@ -20,34 +24,123 @@ import {
   Eye,
   EyeOff,
   Clock,
+  AlertTriangle,
 } from "lucide-react";
 
-export default function Settings() {
-  const [smtpHost, setSmtpHost] = useState(mockSettings.smtp.host);
-  const [smtpPort, setSmtpPort] = useState(mockSettings.smtp.port.toString());
-  const [smtpTls, setSmtpTls] = useState(mockSettings.smtp.tls);
-  const [smtpUser, setSmtpUser] = useState(mockSettings.smtp.username);
-  const [smtpPass, setSmtpPass] = useState(mockSettings.smtp.password);
-  const [smtpFrom, setSmtpFrom] = useState(mockSettings.smtp.from_address);
-  const [smtpFromName, setSmtpFromName] = useState(mockSettings.smtp.from_name);
-  const [retentionDays, setRetentionDays] = useState(mockSettings.retention.results_days);
+export default function SettingsPage() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const { data: settings, isLoading, error } = useQuery<Settings>({
+    queryKey: ["/api/settings"],
+    queryFn: fetchSettings,
+  });
+
+  const [initialized, setInitialized] = useState(false);
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState("");
+  const [smtpTls, setSmtpTls] = useState(false);
+  const [smtpUser, setSmtpUser] = useState("");
+  const [smtpPass, setSmtpPass] = useState("");
+  const [smtpFrom, setSmtpFrom] = useState("");
+  const [smtpFromName, setSmtpFromName] = useState("");
+  const [retentionDays, setRetentionDays] = useState(30);
   const [testingSmtp, setTestingSmtp] = useState(false);
   const [testingModel, setTestingModel] = useState<string | null>(null);
   const [showApiKeys, setShowApiKeys] = useState<Record<string, boolean>>({});
 
-  const handleTestSmtp = () => {
-    setTestingSmtp(true);
-    setTimeout(() => setTestingSmtp(false), 2000);
+  // Initialize form from API data
+  if (settings && !initialized) {
+    setSmtpHost(settings.smtp?.host || "");
+    setSmtpPort(settings.smtp?.port?.toString() || "");
+    setSmtpTls(settings.smtp?.tls ?? false);
+    setSmtpUser(settings.smtp?.username || "");
+    setSmtpPass(settings.smtp?.password || "");
+    setSmtpFrom(settings.smtp?.from_address || "");
+    setSmtpFromName(settings.smtp?.from_name || "");
+    setRetentionDays(settings.retention?.results_days ?? 30);
+    setInitialized(true);
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: (data: Partial<Settings>) => saveSettings(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: "Settings saved" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Save failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleSaveSmtp = () => {
+    saveMutation.mutate({
+      smtp: {
+        host: smtpHost,
+        port: parseInt(smtpPort, 10) || 587,
+        tls: smtpTls,
+        username: smtpUser,
+        password: smtpPass,
+        from_address: smtpFrom,
+        from_name: smtpFromName,
+      },
+    } as Partial<Settings>);
   };
 
-  const handleTestModel = (modelId: string) => {
+  const handleSaveRetention = () => {
+    saveMutation.mutate({
+      retention: {
+        results_days: retentionDays,
+        max_days: 0,
+      },
+    } as Partial<Settings>);
+  };
+
+  const handleTestSmtp = async () => {
+    setTestingSmtp(true);
+    try {
+      const result = await testSmtp();
+      toast({ title: result.success ? "SMTP test successful" : "SMTP test failed", description: result.message });
+    } catch (err: any) {
+      toast({ title: "SMTP test failed", description: err.message, variant: "destructive" });
+    } finally {
+      setTestingSmtp(false);
+    }
+  };
+
+  const handleTestModel = async (modelId: string) => {
     setTestingModel(modelId);
-    setTimeout(() => setTestingModel(null), 2000);
+    try {
+      const result = await testLlm(modelId);
+      toast({ title: result.success ? "Model test successful" : "Model test failed", description: result.message });
+    } catch (err: any) {
+      toast({ title: "Model test failed", description: err.message, variant: "destructive" });
+    } finally {
+      setTestingModel(null);
+    }
   };
 
   const toggleShowKey = (provider: string) => {
     setShowApiKeys((prev) => ({ ...prev, [provider]: !prev[provider] }));
   };
+
+  if (isLoading) {
+    return (
+      <div className="max-w-[800px]">
+        <Skeleton className="h-9 w-96 mb-4" />
+        <Skeleton className="h-[400px] rounded-lg" />
+      </div>
+    );
+  }
+
+  if (error || !settings) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <AlertTriangle className="w-8 h-8 text-muted-foreground mb-3" />
+        <p className="text-sm text-muted-foreground">Failed to load settings{error ? `: ${(error as Error).message}` : ""}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-[800px]">
@@ -120,7 +213,7 @@ export default function Settings() {
                   {testingSmtp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
                   Send Test Email
                 </Button>
-                <Button size="sm" className="h-8 text-xs" data-testid="button-save-smtp">
+                <Button size="sm" className="h-8 text-xs" onClick={handleSaveSmtp} disabled={saveMutation.isPending} data-testid="button-save-smtp">
                   Save
                 </Button>
               </div>
@@ -131,7 +224,7 @@ export default function Settings() {
         {/* LLM Providers Tab */}
         <TabsContent value="llm">
           <div className="space-y-3">
-            {Object.entries(mockSettings.llm.providers).map(([providerName, provider]) => (
+            {Object.entries(settings.llm?.providers || {}).map(([providerName, provider]) => (
               <Card key={providerName} className="bg-card border-card-border" data-testid={`card-provider-${providerName}`}>
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center justify-between">
@@ -232,7 +325,7 @@ export default function Settings() {
                   <span>365 days</span>
                 </div>
               </div>
-              <Button size="sm" className="h-8 text-xs" data-testid="button-save-retention">
+              <Button size="sm" className="h-8 text-xs" onClick={handleSaveRetention} disabled={saveMutation.isPending} data-testid="button-save-retention">
                 Save
               </Button>
             </CardContent>
@@ -250,11 +343,11 @@ export default function Settings() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-xs text-muted-foreground">Host</Label>
-                  <Input value={mockSettings.server.host} className="mt-1 h-9 text-sm font-code bg-background border-border opacity-70" readOnly data-testid="input-server-host" />
+                  <Input value={settings.server?.host || ""} className="mt-1 h-9 text-sm font-code bg-background border-border opacity-70" readOnly data-testid="input-server-host" />
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">Port</Label>
-                  <Input value={mockSettings.server.port.toString()} className="mt-1 h-9 text-sm font-code bg-background border-border opacity-70" readOnly data-testid="input-server-port" />
+                  <Input value={settings.server?.port?.toString() || ""} className="mt-1 h-9 text-sm font-code bg-background border-border opacity-70" readOnly data-testid="input-server-port" />
                 </div>
               </div>
             </CardContent>

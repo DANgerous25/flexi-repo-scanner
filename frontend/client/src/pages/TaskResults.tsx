@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useRoute, Link, useParams } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -19,7 +21,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SeverityBadge, RunStatusBadge, ScanTypeBadge } from "@/components/StatusBadge";
-import { mockTasks, mockRunHistory, mockFindings } from "@/lib/mock-data";
+import { fetchTask, fetchTaskResults, fetchRunFindings } from "@/lib/api";
+import type { Task, TaskRun, Finding } from "@/lib/types";
 import {
   Download,
   FileJson,
@@ -35,13 +38,28 @@ import { format, formatDistanceToNow } from "date-fns";
 export default function TaskResults() {
   const params = useParams();
   const taskId = params?.id ?? null;
-  const task = mockTasks.find((t) => t.id === taskId);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<"none" | "category" | "severity">("none");
 
-  const runs = mockRunHistory.filter((r) => r.task_id === taskId);
+  const { data: task, isLoading: taskLoading } = useQuery<Task>({
+    queryKey: [`/api/tasks/${taskId}`],
+    queryFn: () => fetchTask(taskId!),
+    enabled: !!taskId,
+  });
+
+  const { data: runs = [], isLoading: runsLoading } = useQuery<TaskRun[]>({
+    queryKey: [`/api/tasks/${taskId}/results`],
+    queryFn: () => fetchTaskResults(taskId!),
+    enabled: !!taskId,
+  });
+
   const selectedRun = selectedRunId ? runs.find((r) => r.id === selectedRunId) : runs[0];
-  const findings = selectedRun ? mockFindings.filter((f) => f.run_id === selectedRun.id) : [];
+
+  const { data: findings = [] } = useQuery<Finding[]>({
+    queryKey: [`/api/results/${selectedRun?.id}/findings`],
+    queryFn: () => fetchRunFindings(selectedRun!.id),
+    enabled: !!selectedRun?.id,
+  });
 
   const groupedFindings = (() => {
     if (groupBy === "none") return { "All Findings": findings };
@@ -53,6 +71,16 @@ export default function TaskResults() {
     });
     return groups;
   })();
+
+  if (taskLoading || runsLoading) {
+    return (
+      <div className="space-y-6 max-w-[1200px]">
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="h-[200px] rounded-lg" />
+        <Skeleton className="h-[300px] rounded-lg" />
+      </div>
+    );
+  }
 
   if (!task) {
     return (
