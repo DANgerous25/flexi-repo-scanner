@@ -202,17 +202,17 @@ export default function TaskEditor() {
           exclude: excludeGlobs.split(",").map((g) => g.trim()).filter(Boolean),
         },
         ...(scanType === "pattern" ? { rules } : {}),
-        ...(scanType === "llm-review"
-          ? {
-              llm: {
-                model: preferredModels[0] || "",
-                preferred_models: preferredModels.filter(Boolean),
+        llm: {
+          model: preferredModels[0] || "",
+          preferred_models: preferredModels.filter(Boolean),
+          ...(scanType === "llm-review"
+            ? {
                 prompt_template: promptTemplate || undefined,
                 focus: focusTags ? focusTags.split(",").map((t) => t.trim()).filter(Boolean) : undefined,
                 max_files_per_run: maxFiles ? parseInt(maxFiles, 10) : undefined,
-              },
-            }
-          : {}),
+              }
+            : {}),
+        },
         allowlist: mergedAllowlist,
       },
       actions,
@@ -295,6 +295,10 @@ export default function TaskEditor() {
         exclude: excludeGlobs.split(",").map((g) => g.trim()).filter(Boolean),
       },
       ...(scanType === "pattern" ? { rules } : {}),
+      llm: {
+        model: preferredModels[0] || "",
+        preferred_models: preferredModels.filter(Boolean),
+      },
       allowlist: allowlist.length > 0 ? allowlist : undefined,
     },
     actions,
@@ -395,7 +399,9 @@ scan:
     include: [${includeGlobs.split(",").map((g) => `"${g.trim()}"`).join(", ")}]
     exclude: [${excludeGlobs.split(",").map((g) => `"${g.trim()}"`).join(", ")}]
 ${scanType === "pattern" ? `  rules:\n${rules.map((r) => `    - id: "${r.id}"\n      name: "${r.name}"\n      pattern: '${r.pattern}'\n      severity: "${r.severity}"${r.case_sensitive === false ? "\n      case_sensitive: false" : ""}${r.context_requires ? `\n      context_requires: '${r.context_requires}'` : ""}`).join("\n")}` : ""}
-${scanType === "llm-review" ? `  llm:\n    model: "${preferredModels[0] || ""}"\n    preferred_models: [${preferredModels.filter(Boolean).map((m) => `"${m}"`).join(", ")}]\n    prompt_template: "${promptTemplate}"\n    focus: [${focusTags.split(",").map((t) => `"${t.trim()}"`).join(", ")}]\n    max_files_per_run: ${maxFiles}` : ""}
+  llm:
+    preferred_models: [${preferredModels.filter(Boolean).map((m) => `"${m}"`).join(", ")}]
+${scanType === "llm-review" ? `    prompt_template: "${promptTemplate}"\n    focus: [${focusTags.split(",").map((t) => `"${t.trim()}"`).join(", ")}]\n    max_files_per_run: ${maxFiles}` : ""}
 actions:
 ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.recipients ? `\n    recipients: [${a.recipients.map((r) => `"${r}"`).join(", ")}]` : ""}`).join("\n")}`;
 
@@ -790,53 +796,62 @@ ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.reci
             </Card>
           )}
 
-          {/* LLM Config (only for llm-review type) */}
+          {/* Model Selection (available for all task types) */}
+          <Card className="bg-card border-card-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold">Model Selection</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                {(["Primary Model", "Fallback 1", "Fallback 2"] as const).map((label, idx) => (
+                  <div key={idx}>
+                    <Label className="text-xs text-muted-foreground">{label}</Label>
+                    <Select
+                      value={preferredModels[idx] || "__none__"}
+                      onValueChange={(v) => {
+                        const updated = [...preferredModels];
+                        updated[idx] = v === "__none__" ? "" : v;
+                        setPreferredModels(updated);
+                      }}
+                    >
+                      <SelectTrigger className="mt-1 h-9 text-sm bg-background border-border" data-testid={`select-llm-model-${idx}`}>
+                        <SelectValue placeholder="Select model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">None</SelectItem>
+                        {Object.entries(modelGroups.configured).map(([provider, provModels]) => (
+                          <SelectGroup key={`configured-${provider}`}>
+                            <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">{provider}</SelectLabel>
+                            {provModels.map((m) => (
+                              <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ))}
+                        {Object.entries(modelGroups.unconfigured).map(([provider, provModels]) => (
+                          <SelectGroup key={`unconfigured-${provider}`}>
+                            <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">{provider}</SelectLabel>
+                            {provModels.map((m) => (
+                              <SelectItem key={m.id} value={m.id} disabled className="opacity-40">
+                                {m.name} (not connected)
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* LLM-specific Config (only for llm-review type) */}
           {scanType === "llm-review" && (
             <Card className="bg-card border-card-border">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">LLM Configuration</CardTitle>
+                <CardTitle className="text-sm font-semibold">LLM Review Settings</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="grid grid-cols-3 gap-3">
-                  {(["Primary Model", "Fallback 1", "Fallback 2"] as const).map((label, idx) => (
-                    <div key={idx}>
-                      <Label className="text-xs text-muted-foreground">{label}</Label>
-                      <Select
-                        value={preferredModels[idx] || "__none__"}
-                        onValueChange={(v) => {
-                          const updated = [...preferredModels];
-                          updated[idx] = v === "__none__" ? "" : v;
-                          setPreferredModels(updated);
-                        }}
-                      >
-                        <SelectTrigger className="mt-1 h-9 text-sm bg-background border-border" data-testid={`select-llm-model-${idx}`}>
-                          <SelectValue placeholder="Select model" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">None</SelectItem>
-                          {Object.entries(modelGroups.configured).map(([provider, provModels]) => (
-                            <SelectGroup key={`configured-${provider}`}>
-                              <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">{provider}</SelectLabel>
-                              {provModels.map((m) => (
-                                <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                              ))}
-                            </SelectGroup>
-                          ))}
-                          {Object.entries(modelGroups.unconfigured).map(([provider, provModels]) => (
-                            <SelectGroup key={`unconfigured-${provider}`}>
-                              <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">{provider}</SelectLabel>
-                              {provModels.map((m) => (
-                                <SelectItem key={m.id} value={m.id} disabled className="opacity-40">
-                                  {m.name} (not connected)
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ))}
-                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label className="text-xs text-muted-foreground">Prompt Template</Label>
