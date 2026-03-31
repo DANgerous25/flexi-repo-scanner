@@ -80,7 +80,7 @@ cd "$SCRIPT_DIR"
 # ─── Detect re-run ───────────────────────────────────────────────────────
 
 IS_RERUN=false
-if [[ -f "config/settings.yaml" || -f "data/secrets.enc" ]]; then
+if [[ -f "config/settings.yaml" || -f "data/secrets.enc" || -f "config/connections.yaml" ]]; then
   IS_RERUN=true
 fi
 
@@ -395,12 +395,13 @@ if [[ "$SKIP_CONNECTIONS" == "false" ]]; then
 "
   done
 
+  # Write connections.yaml immediately so it persists even if later steps fail
   if [[ -n "$CONNECTIONS" ]]; then
     cat > config/connections.yaml <<EOF
 connections:
 ${CONNECTIONS}
 EOF
-    ok "$CONN_COUNT connection(s) configured"
+    ok "$CONN_COUNT connection(s) configured — saved to config/connections.yaml"
   elif [[ ! -f "config/connections.yaml" ]]; then
     warn "No connections configured — you can add them later in config/connections.yaml"
     cat > config/connections.yaml <<EOF
@@ -412,14 +413,35 @@ fi
 # GitHub token
 echo ""
 info "GitHub PAT is used for all connections (encrypted in the vault)."
-if ask_yn "Enter/update your GitHub token?" "$([ "$IS_RERUN" = true ] && echo "n" || echo "y")"; then
+
+# Check if token already exists in vault
+HAS_GH_TOKEN=false
+if [[ -f "data/secrets.enc" ]]; then
+  HAS_GH_TOKEN=$(python3 -c "
+import sys; sys.path.insert(0, '.')
+try:
+    from backend.storage.secrets import SecretsVault
+    v = SecretsVault(data_dir='data')
+    print('true' if v.get('GITHUB_TOKEN') else 'false')
+except Exception:
+    print('false')
+" 2>/dev/null || echo "false")
+fi
+
+GH_DEFAULT="y"
+[[ "$HAS_GH_TOKEN" == "true" ]] && GH_DEFAULT="n"
+
+if ask_yn "Enter/update your GitHub token?" "$GH_DEFAULT"; then
   ask_secret "  GitHub token (ghp_... or github_pat_...)" GH_TOKEN
   if [[ -n "$GH_TOKEN" ]]; then
-    ok "Token received"
+    # Save immediately so it persists even if later steps fail
+    mkdir -p data
+    python3 -m backend.storage.setup_vault --data-dir data --set "GITHUB_TOKEN=${GH_TOKEN}" 2>&1 | tail -1
+    ok "Token encrypted and saved"
   fi
 else
   GH_TOKEN=""
-  if [[ "$IS_RERUN" == "true" ]]; then
+  if [[ "$HAS_GH_TOKEN" == "true" ]]; then
     ok "Keeping existing token"
   else
     warn "Skipped — add via: python3 -m backend.storage.setup_vault --data-dir data --set GITHUB_TOKEN=ghp_..."
@@ -498,8 +520,8 @@ for entry in "${CLOUD_PROVIDERS[@]}"; do
   IFS='|' read -r pname env_var default_model display_name <<< "$entry"
   CLOUD_COUNT=$((CLOUD_COUNT + 1))
 
-  echo -ne "  ${DIM}[${CLOUD_COUNT}/${TOTAL_CLOUD}]${RESET} ${BOLD}${pname}${RESET} API key: "
-  read -rs key
+  echo -ne "  ${DIM}[${CLOUD_COUNT}/${TOTAL_CLOUD}]${RESET} ${BOLD}${pname}${RESET} API key ${DIM}(hidden)${RESET}: "
+  read -rs key 2>/dev/null || read -r key
   echo ""
 
   if [[ -n "$key" ]]; then
