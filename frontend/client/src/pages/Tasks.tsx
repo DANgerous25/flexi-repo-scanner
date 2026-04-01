@@ -155,8 +155,9 @@ export default function Tasks() {
       </div>
 
       {/* Table */}
-      <Card className="bg-card border-card-border">
-        <Table>
+      <Card className="bg-card border-card-border overflow-hidden">
+        <div className="overflow-x-auto">
+        <Table className="min-w-[900px]">
           <TableHeader>
             <TableRow className="border-border hover:bg-transparent">
               <TableHead className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Name</TableHead>
@@ -228,37 +229,47 @@ export default function Tasks() {
                     />
                   </TableCell>
                   <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" data-testid={`button-actions-${task.id}`}>
-                          <MoreHorizontal className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40">
-                        <DropdownMenuItem className="text-xs gap-2" onClick={() => runMutation.mutate(task.id)}>
-                          <Play className="w-3.5 h-3.5" /> Run Now
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-xs gap-2" onClick={() => navigate(`/tasks/${task.id}/edit`)}>
-                          <Pencil className="w-3.5 h-3.5" /> Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-xs gap-2" onClick={() => copyMutation.mutate(task.id)}>
-                          <Copy className="w-3.5 h-3.5" /> Copy as Template
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="text-xs gap-2 text-red-400 focus:text-red-400"
-                          onClick={() => setDeleteTaskId(task.id)}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+                        onClick={() => runMutation.mutate(task.id)}
+                        title="Run Now"
+                        data-testid={`button-run-${task.id}`}
+                      >
+                        <Play className="w-3.5 h-3.5" fill="currentColor" />
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" data-testid={`button-actions-${task.id}`}>
+                            <MoreHorizontal className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem className="text-xs gap-2" onClick={() => navigate(`/tasks/${task.id}/edit`)}>
+                            <Pencil className="w-3.5 h-3.5" /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-xs gap-2" onClick={() => copyMutation.mutate(task.id)}>
+                            <Copy className="w-3.5 h-3.5" /> Copy as Template
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-xs gap-2 text-red-400 focus:text-red-400"
+                            onClick={() => setDeleteTaskId(task.id)}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
             )}
           </TableBody>
         </Table>
+        </div>
       </Card>
 
       {/* Delete confirmation */}

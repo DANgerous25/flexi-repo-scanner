@@ -16,9 +16,10 @@ import {
   ArrowRight,
   ChevronRight,
   StopCircle,
+  X,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
-import { stopRun } from "@/lib/api";
+import { stopRun, dismissFailedTaskAlert } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import type { DashboardStats } from "@/lib/types";
 
@@ -54,6 +55,7 @@ function StatCard({
 
 export default function Dashboard() {
   const [stoppingRunId, setStoppingRunId] = useState<string | null>(null);
+  const [isDismissingAll, setIsDismissingAll] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -69,6 +71,18 @@ export default function Dashboard() {
       toast({ title: "Failed to stop run", description: err.message, variant: "destructive" });
     } finally {
       setStoppingRunId(null);
+    }
+  };
+
+  const handleDismissAll = async () => {
+    setIsDismissingAll(true);
+    try {
+      await Promise.all(data.failed_tasks.map(taskId => dismissFailedTaskAlert(taskId)));
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+    } catch (err: any) {
+      toast({ title: "Failed to dismiss alerts", description: err.message, variant: "destructive" });
+    } finally {
+      setIsDismissingAll(false);
     }
   };
 
@@ -137,11 +151,22 @@ export default function Dashboard() {
             <span className="font-medium">{data.failed_tasks.length} task{data.failed_tasks.length > 1 ? "s" : ""} failed.</span>{" "}
             Check {data.failed_tasks.map((t) => `"${data.tasks.find((task) => task.id === t)?.name || t}"`).join(", ")} for errors.
           </p>
-          <Link href="/tasks">
-            <Button variant="ghost" size="sm" className="ml-auto text-red-400 hover:text-red-300 hover:bg-red-500/10 h-7 text-xs">
-              View Tasks <ChevronRight className="w-3 h-3 ml-1" />
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-red-400/70 hover:text-red-300 hover:bg-red-500/10 h-6 px-2 text-xs"
+              onClick={handleDismissAll}
+              disabled={isDismissingAll}
+            >
+              {isDismissingAll ? "..." : "Dismiss"}
             </Button>
-          </Link>
+            <Link href="/tasks">
+              <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-7 text-xs">
+                View Tasks <ChevronRight className="w-3 h-3 ml-1" />
+              </Button>
+            </Link>
+          </div>
         </div>
       )}
 
