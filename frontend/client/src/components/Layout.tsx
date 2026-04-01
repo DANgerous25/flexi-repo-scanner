@@ -108,7 +108,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <nav className="space-y-0.5 px-2">
             {navItems.map(({ href, label, icon: Icon }) => {
               const isActive = href === "/" ? location === "/" : location.startsWith(href);
-              const item = (
+              return (
                 <Link key={href} href={href} onClick={() => setSidebarOpen(false)}>
                   <div
                     className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer ${
@@ -119,19 +119,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     data-testid={`nav-${label.toLowerCase()}`}
                   >
                     <Icon className="w-4 h-4 flex-shrink-0" />
-                    {sidebarOpen ? <span className="truncate">{label}</span> : null}
+                    <span
+                      className={`truncate transition-opacity duration-200 ${
+                        sidebarOpen ? "opacity-100" : "lg:group-hover:opacity-100 opacity-0"
+                      }`}
+                    >
+                      {label}
+                    </span>
                   </div>
                 </Link>
               );
-              if (!sidebarOpen) {
-                return (
-                  <Tooltip key={href}>
-                    <TooltipTrigger asChild>{item}</TooltipTrigger>
-                    <TooltipContent side="right">{label}</TooltipContent>
-                  </Tooltip>
-                );
-              }
-              return item;
             })}
           </nav>
         </ScrollArea>
