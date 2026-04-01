@@ -90,6 +90,19 @@ async def update_settings(data: dict):
                 _store_secret(env_var, api_key)
                 cfg["api_key"] = "${" + env_var + "}"
 
+    # Deep merge for llm.providers to preserve existing provider configs
+    if "llm" in data and "providers" in data.get("llm", {}):
+        current_llm = current_data.get("llm", {})
+        current_providers = current_llm.get("providers", {})
+        incoming_providers = data["llm"]["providers"]
+        # Merge each incoming provider with existing
+        for pname, pcfg in incoming_providers.items():
+            if pname in current_providers:
+                # Deep merge: preserve existing keys not in incoming
+                merged_provider = {**current_providers[pname], **pcfg}
+                incoming_providers[pname] = merged_provider
+        data["llm"]["providers"] = {**current_providers, **incoming_providers}
+
     # Apply updates
     merged = {**current_data, **data}
     settings = AppSettings(**merged)
