@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
-import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectGroup } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { fetchSettings, saveSettings, testSmtp, testLlm, fetchOpenRouterModels } from "@/lib/api";
 import type { Settings } from "@/lib/types";
@@ -27,11 +27,9 @@ import {
   EyeOff,
   Clock,
   AlertTriangle,
-  ChevronsUpDown,
   GripVertical,
   X,
   Plus,
-  Search,
 } from "lucide-react";
 
 export default function SettingsPage() {
@@ -413,45 +411,25 @@ export default function SettingsPage() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex items-center gap-2">
-                    <Popover open={openRouterModelOpen} onOpenChange={setOpenRouterModelOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={openRouterModelOpen}
-                          className="flex-1 justify-between h-9 text-xs"
-                        >
-                          {selectedOpenRouterModel
-                            ? openRouterModels?.find((m) => m.id === selectedOpenRouterModel)?.name ?? selectedOpenRouterModel
-                            : "Select model..."}
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="p-0 w-80">
-                        <Command>
-                          <CommandInput placeholder="Search models..." />
-                          <CommandList>
-                            <CommandEmpty>No model found.</CommandEmpty>
-                            <CommandGroup className="max-h-64 overflow-auto">
-                              {loadingOpenRouterModels ? (
-                                <div className="py-6 text-center text-xs text-muted-foreground">Loading models...</div>
-                              ) : (
-                                filteredOpenRouterModels.slice(0, 50).map((model) => (
-                                  <CommandItem
-                                    key={model.id}
-                                    value={model.id}
-                                    onSelect={() => handleSelectOpenRouterModel(model.id)}
-                                  >
-                                    <span className="text-xs">{model.name}</span>
-                                    <span className="ml-auto text-[10px] text-muted-foreground font-code">{model.id}</span>
-                                  </CommandItem>
-                                ))
-                              )}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
+                    <Select value={selectedOpenRouterModel} onValueChange={setSelectedOpenRouterModel}>
+                      <SelectTrigger className="flex-1 h-9 text-xs">
+                        <SelectValue placeholder="Select model..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {loadingOpenRouterModels ? (
+                            <div className="py-6 text-center text-xs text-muted-foreground">Loading models...</div>
+                          ) : (
+                            filteredOpenRouterModels.slice(0, 100).map((model) => (
+                              <SelectItem key={model.id} value={model.id}>
+                                <span className="text-xs">{model.name}</span>
+                                <span className="ml-2 text-[10px] text-muted-foreground font-code">{model.id}</span>
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
                     <Button size="sm" className="h-9 text-xs" onClick={handleAddOpenRouterModel} disabled={!selectedOpenRouterModel || saveMutation.isPending}>
                       Add
                     </Button>
