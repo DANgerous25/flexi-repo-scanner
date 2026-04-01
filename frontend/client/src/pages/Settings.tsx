@@ -11,7 +11,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectGroup } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { fetchSettings, saveSettings, testSmtp, testLlm, fetchOpenRouterModels } from "@/lib/api";
 import type { Settings } from "@/lib/types";
@@ -411,25 +410,22 @@ export default function SettingsPage() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex items-center gap-2">
-                    <Select value={selectedOpenRouterModel} onValueChange={setSelectedOpenRouterModel}>
-                      <SelectTrigger className="flex-1 h-9 text-xs">
-                        <SelectValue placeholder="Select model..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {loadingOpenRouterModels ? (
-                            <div className="py-6 text-center text-xs text-muted-foreground">Loading models...</div>
-                          ) : (
-                            filteredOpenRouterModels.slice(0, 100).map((model) => (
-                              <SelectItem key={model.id} value={model.id}>
-                                <span className="text-xs">{model.name}</span>
-                                <span className="ml-2 text-[10px] text-muted-foreground font-code">{model.id}</span>
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
+                    <select
+                      value={selectedOpenRouterModel}
+                      onChange={(e) => setSelectedOpenRouterModel(e.target.value)}
+                      className="flex-1 h-9 text-xs rounded-md border border-input bg-background px-3 py-2"
+                    >
+                      <option value="">Select model...</option>
+                      {loadingOpenRouterModels ? (
+                        <option disabled>Loading models...</option>
+                      ) : (
+                        filteredOpenRouterModels.slice(0, 100).map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.name} ({model.id})
+                          </option>
+                        ))
+                      )}
+                    </select>
                     <Button size="sm" className="h-9 text-xs" onClick={handleAddOpenRouterModel} disabled={!selectedOpenRouterModel || saveMutation.isPending}>
                       Add
                     </Button>
