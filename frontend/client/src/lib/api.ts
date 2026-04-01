@@ -92,6 +92,10 @@ export async function runTask(id: string): Promise<void> {
   await post<unknown>(`/api/tasks/${encodeURIComponent(id)}/run`);
 }
 
+export async function dismissFailedTaskAlert(taskId: string): Promise<void> {
+  await post<void>(`/api/tasks/${encodeURIComponent(taskId)}/dismiss-alert`);
+}
+
 export async function copyTask(id: string): Promise<Task> {
   return post<Task>(`/api/tasks/${encodeURIComponent(id)}/copy`);
 }

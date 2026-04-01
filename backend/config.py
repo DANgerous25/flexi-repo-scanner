@@ -45,7 +45,7 @@ def _interpolate(value: Any) -> Any:
 # ── Settings Models ──────────────────────────────────────────────────────
 
 class ServerConfig(BaseModel):
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8400
 
 

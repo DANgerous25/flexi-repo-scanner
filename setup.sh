@@ -292,7 +292,7 @@ fi
 step "Installing dependencies"
 
 # Python venv
-if [[ ! -d ".venv" ]]; then
+if [[ ! -f ".venv/bin/activate" ]]; then
   info "Creating Python virtual environment..."
   python3 -m venv .venv
   ok "Virtual environment created"
@@ -318,7 +318,7 @@ if [[ -d "frontend" ]]; then
 
   if [[ ! -d "dist" ]] || ask_yn "Rebuild frontend?" "n"; then
     info "Building frontend..."
-    npm run build --silent 2>&1 | tail -1
+    npm run build
     ok "Frontend built"
   else
     ok "Frontend already built"
