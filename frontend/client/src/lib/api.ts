@@ -272,6 +272,10 @@ export async function fetchOpenRouterModels(): Promise<{ id: string; name: strin
   return data.models;
 }
 
+export async function setOpenRouterModel(modelId: string, modelName: string): Promise<{ message: string; model: string }> {
+  return post<{ message: string; model: string }>("/api/settings/openrouter-model", { model_id: modelId, model_name: modelName });
+}
+
 // ── Notifications ───────────────────────────────────────
 
 export async function fetchNotifications(): Promise<Notification[]> {

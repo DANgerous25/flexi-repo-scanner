@@ -173,6 +173,31 @@ async def list_secrets():
         return {"keys": [], "count": 0}
 
 
+@router.post("/openrouter-model")
+async def set_openrouter_model(data: dict):
+    """Set the active OpenRouter model without touching other settings."""
+    model_id = data.get("model_id", "")
+    model_name = data.get("model_name", model_id)
+    if not model_id:
+        raise HTTPException(400, "model_id is required")
+
+    current = config_loader.load_settings()
+    current_data = current.model_dump()
+
+    # Ensure openrouter provider exists
+    providers = current_data.get("llm", {}).get("providers", {})
+    if "openrouter" not in providers:
+        raise HTTPException(400, "OpenRouter provider not configured")
+
+    # Update only the models list for openrouter
+    providers["openrouter"]["models"] = [{"id": model_id, "name": model_name}]
+    current_data["llm"]["providers"] = providers
+
+    settings = AppSettings(**current_data)
+    config_loader.save_settings(settings)
+    return {"message": "OpenRouter model updated", "model": model_id}
+
+
 @router.get("/openrouter-models")
 async def list_openrouter_models():
     """Fetch available models from OpenRouter's public API."""

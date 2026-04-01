@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { fetchSettings, saveSettings, testSmtp, testLlm, fetchOpenRouterModels } from "@/lib/api";
+import { fetchSettings, saveSettings, testSmtp, testLlm, fetchOpenRouterModels, setOpenRouterModel } from "@/lib/api";
 import type { Settings } from "@/lib/types";
 import {
   Mail,
@@ -140,22 +140,16 @@ export default function SettingsPage() {
   };
 
   // OpenRouter model change handler
-  const handleSetOpenRouterModel = (modelId: string) => {
+  const handleSetOpenRouterModel = async (modelId: string) => {
     setOrSelectedModel(modelId);
     const modelName = openRouterModels?.find((m) => m.id === modelId)?.name ?? modelId;
-    const currentProviders = (settings as any)?.llm?.providers ?? {};
-    saveMutation.mutate({
-      llm: {
-        fallback_order: (settings as any)?.llm?.fallback_order ?? [],
-        providers: {
-          ...currentProviders,
-          openrouter: {
-            ...currentProviders.openrouter,
-            models: [{ id: modelId, name: modelName }],
-          },
-        },
-      },
-    } as unknown as Partial<Settings>);
+    try {
+      await setOpenRouterModel(modelId, modelName);
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: "OpenRouter model updated" });
+    } catch (err: any) {
+      toast({ title: "Failed to update model", description: err.message, variant: "destructive" });
+    }
   };
 
   // Filter OpenRouter models by search
