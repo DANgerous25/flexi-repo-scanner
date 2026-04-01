@@ -53,7 +53,8 @@ ask_secret() {
   # (@, etc.) on many terminals/SSH sessions. Secrets are encrypted
   # in the vault immediately after entry and never logged.
   echo -ne "  ${prompt}: "
-  read -r input
+  # Use IFS to preserve special characters like @
+  IFS= read -r input
   eval "$var_name='$input'"
 }
 
@@ -233,11 +234,12 @@ else
   ok "Python $(python3 --version 2>&1 | awk '{print $2}') installed"
 fi
 
-# Ensure python3-venv is available (common issue on Ubuntu/Debian)
-if [[ "$PKG_MGR" == "apt" ]] && ! python3 -m venv --help &>/dev/null; then
-  info "Installing python3-venv (needed for virtual environment)..."
-  sudo apt-get install -y -qq python3-venv
-fi
+    # Ensure python3-venv is available (common issue on Ubuntu/Debian)
+    if [[ "$PKG_MGR" == "apt" ]] && ! python3 -m venv --help &>/dev/null; then
+      info "Installing python3-venv (needed for virtual environment)..."
+      PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
+      sudo apt-get install -y -qq python${PYTHON_VERSION}-venv
+    fi
 
 # Node.js
 if command -v node &>/dev/null; then
