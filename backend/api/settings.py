@@ -158,3 +158,24 @@ async def list_secrets():
         return {"keys": keys, "count": len(keys)}
     except Exception:
         return {"keys": [], "count": 0}
+
+
+@router.get("/openrouter-models")
+async def list_openrouter_models():
+    """Fetch available models from OpenRouter's public API."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get("https://openrouter.ai/api/v1/models")
+            resp.raise_for_status()
+            data = resp.json()
+            # OpenRouter returns {"data": [{"id": "...", "name": "...", ...}]}
+            models = data.get("data", [])
+            return {
+                "models": [
+                    {"id": m["id"], "name": m.get("name", m["id"]), "pricing": m.get("pricing", {})}
+                    for m in models
+                ]
+            }
+    except Exception as e:
+        raise HTTPException(502, f"Failed to fetch OpenRouter models: {e}")

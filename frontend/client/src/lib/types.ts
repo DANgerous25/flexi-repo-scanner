@@ -149,6 +149,7 @@ export interface Settings {
     from_name: string;
   };
   llm: {
+    fallback_order: string[];
     providers: Record<string, LLMProvider>;
   };
   retention: {

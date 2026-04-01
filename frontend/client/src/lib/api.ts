@@ -267,6 +267,11 @@ export async function fetchModels(): Promise<LLMModel[]> {
   return get<LLMModel[]>("/api/settings/models");
 }
 
+export async function fetchOpenRouterModels(): Promise<{ id: string; name: string; pricing: Record<string, number> }[]> {
+  const data = await get<{ models: { id: string; name: string; pricing: Record<string, number> }[] }>("/api/settings/openrouter-models");
+  return data.models;
+}
+
 // ── Notifications ───────────────────────────────────────
 
 export async function fetchNotifications(): Promise<Notification[]> {
