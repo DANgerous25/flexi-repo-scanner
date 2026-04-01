@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,9 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
-import { fetchSettings, saveSettings, testSmtp, testLlm, fetchOpenRouterModels } from "@/lib/api";
+import { fetchSettings, saveSettings, testSmtp, testLlm } from "@/lib/api";
 import type { Settings } from "@/lib/types";
 import {
   Mail,
@@ -26,9 +25,6 @@ import {
   EyeOff,
   Clock,
   AlertTriangle,
-  GripVertical,
-  X,
-  Plus,
 } from "lucide-react";
 
 export default function SettingsPage() {
@@ -38,13 +34,6 @@ export default function SettingsPage() {
   const { data: settings, isLoading, error } = useQuery<Settings>({
     queryKey: ["/api/settings"],
     queryFn: fetchSettings,
-  });
-
-  // OpenRouter models
-  const { data: openRouterModels, isLoading: loadingOpenRouterModels } = useQuery({
-    queryKey: ["/api/settings/openrouter-models"],
-    queryFn: fetchOpenRouterModels,
-    enabled: !!settings?.llm?.providers?.openrouter,
   });
 
   const [initialized, setInitialized] = useState(false);
@@ -60,11 +49,6 @@ export default function SettingsPage() {
   const [testingModel, setTestingModel] = useState<string | null>(null);
   const [showApiKeys, setShowApiKeys] = useState<Record<string, boolean>>({});
 
-  // Fallback order state
-  const [fallbackOrder, setFallbackOrder] = useState<string[]>([]);
-  const [openRouterModelOpen, setOpenRouterModelOpen] = useState(false);
-  const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState<string>("");
-
   // Initialize form from API data
   if (settings && !initialized) {
     setSmtpHost(settings.smtp?.host || "");
@@ -75,12 +59,6 @@ export default function SettingsPage() {
     setSmtpFrom(settings.smtp?.from_address || "");
     setSmtpFromName(settings.smtp?.from_name || "");
     setRetentionDays(settings.retention?.results_days ?? 30);
-    setFallbackOrder(settings.llm?.fallback_order ?? []);
-    // Set the first model in OpenRouter's list as selected
-    const orModels = settings.llm?.providers?.openrouter?.models ?? [];
-    if (orModels.length > 0) {
-      setSelectedOpenRouterModel(orModels[0].id);
-    }
     setInitialized(true);
   }
 
@@ -145,80 +123,6 @@ export default function SettingsPage() {
   const toggleShowKey = (provider: string) => {
     setShowApiKeys((prev) => ({ ...prev, [provider]: !prev[provider] }));
   };
-
-  // ── Fallback order handlers ──────────────────────────────────────────
-  const handleAddFallback = (provider: string) => {
-    if (!fallbackOrder.includes(provider)) {
-      setFallbackOrder([...fallbackOrder, provider]);
-    }
-    setOpenRouterModelOpen(false);
-  };
-
-  const handleRemoveFallback = (provider: string) => {
-    setFallbackOrder(fallbackOrder.filter((p) => p !== provider));
-  };
-
-  const handleMoveFallback = (index: number, direction: "up" | "down") => {
-    const newOrder = [...fallbackOrder];
-    const target = direction === "up" ? index - 1 : index + 1;
-    if (target < 0 || target >= newOrder.length) return;
-    [newOrder[index], newOrder[target]] = [newOrder[target], newOrder[index]];
-    setFallbackOrder(newOrder);
-  };
-
-  const handleSaveFallbackOrder = () => {
-    saveMutation.mutate({
-      llm: { fallback_order: fallbackOrder, providers: settings!.llm?.providers ?? {} },
-    } as Partial<Settings>);
-  };
-
-  // ── OpenRouter model handlers ────────────────────────────────────────
-  const handleSelectOpenRouterModel = (modelId: string) => {
-    setSelectedOpenRouterModel(modelId);
-    setOpenRouterModelOpen(false);
-  };
-
-  const handleAddOpenRouterModel = () => {
-    if (!selectedOpenRouterModel) return;
-    const currentModels = settings!.llm?.providers?.openrouter?.models ?? [];
-    if (currentModels.some((m) => m.id === selectedOpenRouterModel)) {
-      toast({ title: "Model already added", variant: "destructive" });
-      return;
-    }
-    const modelName = openRouterModels?.find((m) => m.id === selectedOpenRouterModel)?.name ?? selectedOpenRouterModel;
-    const newProviders = {
-      ...settings!.llm?.providers ?? {},
-      openrouter: {
-        ...settings!.llm?.providers?.openrouter ?? {},
-        models: [...currentModels, { id: selectedOpenRouterModel, name: modelName, provider: "openrouter", configured: true }],
-      },
-    };
-    saveMutation.mutate({
-      llm: { fallback_order: fallbackOrder, providers: newProviders },
-    } as Partial<Settings>);
-  };
-
-  const handleRemoveOpenRouterModel = (modelId: string) => {
-    const currentModels = settings!.llm?.providers?.openrouter?.models ?? [];
-    const newProviders = {
-      ...settings!.llm?.providers ?? {},
-      openrouter: {
-        ...settings!.llm?.providers?.openrouter ?? {},
-        models: currentModels.filter((m) => m.id !== modelId),
-      },
-    };
-    saveMutation.mutate({
-      llm: { fallback_order: fallbackOrder, providers: newProviders },
-    } as Partial<Settings>);
-  };
-
-  // Available providers for fallback (excluding those already in the list)
-  const availableProviders = Object.keys(settings!.llm?.providers ?? {}).filter(
-    (p) => !fallbackOrder.includes(p)
-  );
-
-  // Filtered OpenRouter models
-  const filteredOpenRouterModels = openRouterModels ?? [];
 
   if (isLoading) {
     return (
@@ -319,158 +223,7 @@ export default function SettingsPage() {
 
         {/* LLM Providers Tab */}
         <TabsContent value="llm">
-          <div className="space-y-4">
-            {/* Fallback Order Configuration */}
-            <Card className="bg-card border-card-border">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Model Fallback Order</CardTitle>
-                <p className="text-xs text-muted-foreground">Providers are tried in this order when a task runs. Drag to reorder.</p>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-1.5">
-                  {fallbackOrder.map((provider, index) => (
-                    <div key={provider} className="flex items-center gap-2 p-2 rounded bg-background border border-border">
-                      <GripVertical className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                      <span className="text-xs font-medium text-foreground flex-1 capitalize">{index + 1}. {provider}</span>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-muted-foreground"
-                          onClick={() => handleMoveFallback(index, "up")}
-                          disabled={index === 0}
-                        >
-                          <span className="sr-only">Move up</span>
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-muted-foreground"
-                          onClick={() => handleMoveFallback(index, "down")}
-                          disabled={index === fallbackOrder.length - 1}
-                        >
-                          <span className="sr-only">Move down</span>
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                          onClick={() => handleRemoveFallback(provider)}
-                        >
-                          <X className="w-3 h-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  {fallbackOrder.length === 0 && (
-                    <p className="text-xs text-muted-foreground text-center py-4">No providers in fallback order</p>
-                  )}
-                </div>
-
-                {/* Add provider dropdown */}
-                {availableProviders.length > 0 && (
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 w-full">
-                        <Plus className="w-3.5 h-3.5" /> Add provider to fallback chain
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="p-2 w-48">
-                      <div className="space-y-1">
-                        {availableProviders.map((p) => (
-                          <Button
-                            key={p}
-                            variant="ghost"
-                            size="sm"
-                            className="w-full justify-start text-xs capitalize h-8"
-                            onClick={() => handleAddFallback(p)}
-                          >
-                            {p}
-                          </Button>
-                        ))}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                )}
-
-                <Button size="sm" className="h-8 text-xs" onClick={handleSaveFallbackOrder} disabled={saveMutation.isPending}>
-                  Save Fallback Order
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* OpenRouter Model Selector */}
-            {settings.llm?.providers?.openrouter && (
-              <Card className="bg-card border-card-border">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold">OpenRouter Models</CardTitle>
-                  <p className="text-xs text-muted-foreground">Add models from OpenRouter's catalog to use in tasks.</p>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={selectedOpenRouterModel}
-                      onChange={(e) => setSelectedOpenRouterModel(e.target.value)}
-                      className="flex-1 h-9 text-xs rounded-md border border-input bg-background px-3 py-2"
-                    >
-                      <option value="">Select model...</option>
-                      {loadingOpenRouterModels ? (
-                        <option disabled>Loading models...</option>
-                      ) : (
-                        filteredOpenRouterModels.slice(0, 100).map((model) => (
-                          <option key={model.id} value={model.id}>
-                            {model.name} ({model.id})
-                          </option>
-                        ))
-                      )}
-                    </select>
-                    <Button size="sm" className="h-9 text-xs" onClick={handleAddOpenRouterModel} disabled={!selectedOpenRouterModel || saveMutation.isPending}>
-                      Add
-                    </Button>
-                  </div>
-
-                  {/* Current OpenRouter models */}
-                  <div className="mt-1.5 space-y-1.5">
-                    {(settings.llm.providers.openrouter.models ?? []).map((model) => (
-                      <div key={model.id} className="flex items-center justify-between p-2 rounded bg-background border border-border">
-                        <div>
-                          <span className="text-xs font-medium text-foreground">{model.name}</span>
-                          <span className="text-[10px] font-code text-muted-foreground ml-2">{model.id}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
-                            onClick={() => handleTestModel(model.id)}
-                            disabled={testingModel === model.id}
-                          >
-                            {testingModel === model.id ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <RefreshCw className="w-3 h-3" />
-                            )}
-                            Test
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                            onClick={() => handleRemoveOpenRouterModel(model.id)}
-                          >
-                            <X className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Provider cards */}
+          <div className="space-y-3">
             {Object.entries(settings.llm?.providers || {}).map(([providerName, provider]) => (
               <Card key={providerName} className="bg-card border-card-border" data-testid={`card-provider-${providerName}`}>
                 <CardContent className="p-4 space-y-3">
@@ -510,36 +263,34 @@ export default function SettingsPage() {
                     </div>
                   )}
 
-                  {providerName !== "openrouter" && (
-                    <div>
-                      <Label className="text-xs text-muted-foreground">Models</Label>
-                      <div className="mt-1.5 space-y-1.5">
-                        {provider.models.map((model) => (
-                          <div key={model.id} className="flex items-center justify-between p-2 rounded bg-background border border-border">
-                            <div>
-                              <span className="text-xs font-medium text-foreground">{model.name}</span>
-                              <span className="text-[10px] font-code text-muted-foreground ml-2">{model.id}</span>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
-                              onClick={() => handleTestModel(model.id)}
-                              disabled={testingModel === model.id}
-                              data-testid={`button-test-model-${model.id}`}
-                            >
-                              {testingModel === model.id ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                              ) : (
-                                <RefreshCw className="w-3 h-3" />
-                              )}
-                              Test
-                            </Button>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Models</Label>
+                    <div className="mt-1.5 space-y-1.5">
+                      {provider.models.map((model) => (
+                        <div key={model.id} className="flex items-center justify-between p-2 rounded bg-background border border-border">
+                          <div>
+                            <span className="text-xs font-medium text-foreground">{model.name}</span>
+                            <span className="text-[10px] font-code text-muted-foreground ml-2">{model.id}</span>
                           </div>
-                        ))}
-                      </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                            onClick={() => handleTestModel(model.id)}
+                            disabled={testingModel === model.id}
+                            data-testid={`button-test-model-${model.id}`}
+                          >
+                            {testingModel === model.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-3 h-3" />
+                            )}
+                            Test
+                          </Button>
+                        </div>
+                      ))}
                     </div>
-                  )}
+                  </div>
                 </CardContent>
               </Card>
             ))}
