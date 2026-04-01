@@ -428,7 +428,7 @@ export default function SettingsPage() {
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="p-0 w-80">
-                        <Command filter={(value, search) => value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}>
+                        <Command>
                           <CommandInput placeholder="Search models..." />
                           <CommandList>
                             <CommandEmpty>No model found.</CommandEmpty>
@@ -439,7 +439,7 @@ export default function SettingsPage() {
                                 filteredOpenRouterModels.slice(0, 50).map((model) => (
                                   <CommandItem
                                     key={model.id}
-                                    value={`${model.name} ${model.id}`}
+                                    value={model.id}
                                     onSelect={() => handleSelectOpenRouterModel(model.id)}
                                   >
                                     <span className="text-xs">{model.name}</span>
