@@ -119,7 +119,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     data-testid={`nav-${label.toLowerCase()}`}
                   >
                     <Icon className="w-4 h-4 flex-shrink-0" />
-                    {sidebarOpen && label}
+                    {sidebarOpen ? <span className="truncate">{label}</span> : null}
                   </div>
                 </Link>
               );
@@ -131,7 +131,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="p-3 border-t border-border">
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <ScanSearch className="w-3.5 h-3.5 flex-shrink-0" />
-            {sidebarOpen && <span>v1.0.0</span>}
+            {sidebarOpen ? <span className="truncate">v1.0.0</span> : null}
           </div>
         </div>
       </aside>
