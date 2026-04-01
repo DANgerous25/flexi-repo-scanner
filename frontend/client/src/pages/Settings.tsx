@@ -143,13 +143,16 @@ export default function SettingsPage() {
   const handleSetOpenRouterModel = (modelId: string) => {
     setOrSelectedModel(modelId);
     const modelName = openRouterModels?.find((m) => m.id === modelId)?.name ?? modelId;
-    const currentProviders = settings?.llm?.providers ?? {};
+    const currentProviders = (settings as any)?.llm?.providers ?? {};
     saveMutation.mutate({
       llm: {
-        ...currentProviders,
-        openrouter: {
-          ...currentProviders.openrouter,
-          models: [{ id: modelId, name: modelName }],
+        fallback_order: (settings as any)?.llm?.fallback_order ?? [],
+        providers: {
+          ...currentProviders,
+          openrouter: {
+            ...currentProviders.openrouter,
+            models: [{ id: modelId, name: modelName }],
+          },
         },
       },
     } as unknown as Partial<Settings>);
