@@ -108,7 +108,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <nav className="space-y-0.5 px-2">
             {navItems.map(({ href, label, icon: Icon }) => {
               const isActive = href === "/" ? location === "/" : location.startsWith(href);
-              return (
+              const item = (
                 <Link key={href} href={href} onClick={() => setSidebarOpen(false)}>
                   <div
                     className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer ${
@@ -123,6 +123,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   </div>
                 </Link>
               );
+              if (!sidebarOpen) {
+                return (
+                  <Tooltip key={href}>
+                    <TooltipTrigger asChild>{item}</TooltipTrigger>
+                    <TooltipContent side="right">{label}</TooltipContent>
+                  </Tooltip>
+                );
+              }
+              return item;
             })}
           </nav>
         </ScrollArea>
