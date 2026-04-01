@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { fetchSettings, saveSettings, testSmtp, testLlm } from "@/lib/api";
+import { fetchSettings, saveSettings, testSmtp, testLlm, fetchOpenRouterModels } from "@/lib/api";
 import type { Settings } from "@/lib/types";
 import {
   Mail,
@@ -36,6 +36,12 @@ export default function SettingsPage() {
     queryFn: fetchSettings,
   });
 
+  // OpenRouter models query
+  const { data: openRouterModels, isLoading: loadingORModels } = useQuery({
+    queryKey: ["/api/settings/openrouter-models"],
+    queryFn: fetchOpenRouterModels,
+  });
+
   const [initialized, setInitialized] = useState(false);
   const [smtpHost, setSmtpHost] = useState("");
   const [smtpPort, setSmtpPort] = useState("");
@@ -49,6 +55,10 @@ export default function SettingsPage() {
   const [testingModel, setTestingModel] = useState<string | null>(null);
   const [showApiKeys, setShowApiKeys] = useState<Record<string, boolean>>({});
 
+  // OpenRouter model selection state
+  const [orSearch, setOrSearch] = useState("");
+  const [orSelectedModel, setOrSelectedModel] = useState("");
+
   // Initialize form from API data
   if (settings && !initialized) {
     setSmtpHost(settings.smtp?.host || "");
@@ -59,6 +69,11 @@ export default function SettingsPage() {
     setSmtpFrom(settings.smtp?.from_address || "");
     setSmtpFromName(settings.smtp?.from_name || "");
     setRetentionDays(settings.retention?.results_days ?? 30);
+    // Pre-select the current OpenRouter model
+    const orProvider = settings.llm?.providers?.openrouter;
+    if (orProvider?.models?.[0]) {
+      setOrSelectedModel(orProvider.models[0].id);
+    }
     setInitialized(true);
   }
 
@@ -123,6 +138,27 @@ export default function SettingsPage() {
   const toggleShowKey = (provider: string) => {
     setShowApiKeys((prev) => ({ ...prev, [provider]: !prev[provider] }));
   };
+
+  // OpenRouter model change handler
+  const handleSetOpenRouterModel = (modelId: string) => {
+    setOrSelectedModel(modelId);
+    const modelName = openRouterModels?.find((m) => m.id === modelId)?.name ?? modelId;
+    const currentProviders = settings?.llm?.providers ?? {};
+    saveMutation.mutate({
+      llm: {
+        ...currentProviders,
+        openrouter: {
+          ...currentProviders.openrouter,
+          models: [{ id: modelId, name: modelName }],
+        },
+      },
+    } as unknown as Partial<Settings>);
+  };
+
+  // Filter OpenRouter models by search
+  const filteredORModels = (openRouterModels ?? []).filter(
+    (m) => !orSearch || m.id.toLowerCase().includes(orSearch.toLowerCase()) || m.name.toLowerCase().includes(orSearch.toLowerCase())
+  ).slice(0, 30);
 
   if (isLoading) {
     return (
@@ -265,31 +301,69 @@ export default function SettingsPage() {
 
                   <div>
                     <Label className="text-xs text-muted-foreground">Models</Label>
-                    <div className="mt-1.5 space-y-1.5">
-                      {provider.models.map((model) => (
-                        <div key={model.id} className="flex items-center justify-between p-2 rounded bg-background border border-border">
+                    {providerName === "openrouter" ? (
+                      <div className="mt-1.5 space-y-2">
+                        <div className="flex items-center justify-between p-2 rounded bg-background border border-border">
                           <div>
-                            <span className="text-xs font-medium text-foreground">{model.name}</span>
-                            <span className="text-[10px] font-code text-muted-foreground ml-2">{model.id}</span>
+                            <span className="text-xs font-medium text-foreground">Active model:</span>
+                            <span className="text-[10px] font-code text-muted-foreground ml-2">{orSelectedModel || "Not set"}</span>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
-                            onClick={() => handleTestModel(model.id)}
-                            disabled={testingModel === model.id}
-                            data-testid={`button-test-model-${model.id}`}
-                          >
-                            {testingModel === model.id ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <RefreshCw className="w-3 h-3" />
-                            )}
-                            Test
-                          </Button>
                         </div>
-                      ))}
-                    </div>
+                        <Input
+                          placeholder="Search OpenRouter models..."
+                          value={orSearch}
+                          onChange={(e) => setOrSearch(e.target.value)}
+                          className="h-8 text-xs bg-background border-border"
+                        />
+                        <div className="max-h-48 overflow-y-auto space-y-1 border rounded bg-background">
+                          {loadingORModels ? (
+                            <div className="p-2 text-xs text-muted-foreground">Loading models...</div>
+                          ) : filteredORModels.length === 0 ? (
+                            <div className="p-2 text-xs text-muted-foreground">No models found</div>
+                          ) : (
+                            filteredORModels.map((model) => (
+                              <button
+                                key={model.id}
+                                className="w-full text-left px-2 py-1.5 text-xs hover:bg-accent transition-colors"
+                                onClick={() => handleSetOpenRouterModel(model.id)}
+                              >
+                                <span className="font-medium">{model.name}</span>
+                                <span className="ml-2 text-[10px] text-muted-foreground font-code">{model.id}</span>
+                                {orSelectedModel === model.id && (
+                                  <span className="ml-2 text-[10px] text-cyan-500">✓</span>
+                                )}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-1.5 space-y-1.5">
+                        {provider.models.map((model) => (
+                          <div key={model.id} className="flex items-center justify-between p-2 rounded bg-background border border-border">
+                            <div>
+                              <span className="text-xs font-medium text-foreground">{model.name}</span>
+                              <span className="text-[10px] font-code text-muted-foreground ml-2">{model.id}</span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                              onClick={() => handleTestModel(model.id)}
+                              disabled={testingModel === model.id}
+                              data-testid={`button-test-model-${model.id}`}
+                            >
+                              {testingModel === model.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-3 h-3" />
+                              )}
+                              Test
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
