@@ -65,7 +65,6 @@ export default function SettingsPage() {
 
   // Fallback order state
   const [fallbackOrder, setFallbackOrder] = useState<string[]>([]);
-  const [openRouterModelSearch, setOpenRouterModelSearch] = useState("");
   const [openRouterModelOpen, setOpenRouterModelOpen] = useState(false);
   const [selectedOpenRouterModel, setSelectedOpenRouterModel] = useState<string>("");
 
@@ -222,11 +221,7 @@ export default function SettingsPage() {
   );
 
   // Filtered OpenRouter models
-  const filteredOpenRouterModels = (openRouterModels ?? []).filter(
-    (m) =>
-      m.id.toLowerCase().includes(openRouterModelSearch.toLowerCase()) ||
-      m.name.toLowerCase().includes(openRouterModelSearch.toLowerCase())
-  );
+  const filteredOpenRouterModels = openRouterModels ?? [];
 
   if (isLoading) {
     return (
@@ -433,8 +428,8 @@ export default function SettingsPage() {
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="p-0 w-80">
-                        <Command>
-                          <CommandInput placeholder="Search models..." value={openRouterModelSearch} onValueChange={setOpenRouterModelSearch} />
+                        <Command filter={(value, search) => value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}>
+                          <CommandInput placeholder="Search models..." />
                           <CommandList>
                             <CommandEmpty>No model found.</CommandEmpty>
                             <CommandGroup className="max-h-64 overflow-auto">
@@ -444,7 +439,7 @@ export default function SettingsPage() {
                                 filteredOpenRouterModels.slice(0, 50).map((model) => (
                                   <CommandItem
                                     key={model.id}
-                                    value={model.id}
+                                    value={`${model.name} ${model.id}`}
                                     onSelect={() => handleSelectOpenRouterModel(model.id)}
                                   >
                                     <span className="text-xs">{model.name}</span>
