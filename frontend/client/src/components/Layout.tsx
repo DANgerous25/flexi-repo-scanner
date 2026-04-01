@@ -79,7 +79,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           fixed lg:relative z-50 lg:z-auto
           h-full border-r border-border bg-sidebar flex flex-col
           transition-all duration-300 ease-in-out
-          ${sidebarOpen ? "w-56" : "w-0"}
+          ${sidebarOpen ? "w-56" : "w-0 lg:w-14 lg:hover:w-56 group"}
           overflow-hidden
         `}
       >
