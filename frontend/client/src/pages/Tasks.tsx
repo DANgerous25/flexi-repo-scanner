@@ -58,6 +58,10 @@ export default function Tasks() {
   const { data: tasks = [], isLoading, error } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
     queryFn: fetchTasks,
+    refetchInterval: (data) => {
+      const hasRunning = Array.isArray(data) && data.some((t: Task) => t.state === "running" || t.state === "scheduled");
+      return hasRunning ? 2000 : false;
+    },
   });
 
   const deleteMutation = useMutation({
