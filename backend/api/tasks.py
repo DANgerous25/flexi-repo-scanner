@@ -161,7 +161,7 @@ async def generate_rules(req: GenerateRequest):
     )
 
     if result.get("error"):
-        raise HTTPException(502, f"LLM error: {result['error']}")
+        return {"error": f"LLM error: {result['error']}"}
 
     raw_content = result["content"]
     parsed = _parse_suggestions(raw_content, req.mode)
@@ -185,10 +185,13 @@ async def list_tasks():
     for task in tasks:
         state = await db.get_task_state(task.id)
         next_run = scheduler.get_next_run(task.id)
+        runs = await db.get_task_runs(task.id, 1)
+        last_run = runs[0] if runs else None
         result.append({
             **task.model_dump(),
             "state": state or {"status": "inactive"},
             "next_run_at": next_run,
+            "findings_count": last_run.get("finding_count", 0) if last_run else 0,
         })
     return result
 
@@ -201,10 +204,13 @@ async def get_task(task_id: str):
         raise HTTPException(404, "Task not found")
     state = await db.get_task_state(task_id)
     next_run = scheduler.get_next_run(task_id)
+    runs = await db.get_task_runs(task_id, 1)
+    last_run = runs[0] if runs else None
     return {
         **task.model_dump(),
         "state": state or {"status": "inactive"},
         "next_run_at": next_run,
+        "findings_count": last_run.get("finding_count", 0) if last_run else 0,
     }
 
 
