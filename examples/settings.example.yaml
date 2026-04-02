@@ -23,6 +23,11 @@ llm:
     - mistral     # European alternative
     - xai         # Grok models
 
+  # Default and backup models used by tasks unless overridden in task config.
+  # Use full model ID (e.g. "provider/model-name"). "auto" uses fallback logic.
+  default_model: "groq/llama-3.3-70b-versatile"
+  backup_model: "deepseek/deepseek-chat"
+
   providers:
     # ── Local / self-hosted ──
     ollama:

@@ -74,6 +74,8 @@ class LlmProviderConfig(BaseModel):
 class LlmConfig(BaseModel):
     """Top-level LLM configuration with fallback ordering."""
     fallback_order: list[str] = Field(default_factory=list)
+    default_model: str = "auto"
+    backup_model: str = ""
     providers: dict[str, LlmProviderConfig] = Field(default_factory=dict)
 
 

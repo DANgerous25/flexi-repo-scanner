@@ -185,8 +185,8 @@ async def review_files(
         {"role": "user", "content": f"Review the following files:\n{file_content}"},
     ]
 
-    # If no model specified in task config, use a generic placeholder.
-    # The router's fallback logic will resolve to the first available provider.
+    # If no model specified in task config, use "auto" which resolves to
+    # settings.llm.default_model (or fallback_order).
     model = llm_config.model or "auto"
     complete_fn = llm.complete if use_fallback else llm.complete_single
     result = await complete_fn(

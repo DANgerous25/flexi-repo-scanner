@@ -66,31 +66,55 @@ def _is_resolved(value: str) -> bool:
     return not (value.startswith("${") and value.endswith("}"))
 
 
-def _provider_is_available(provider_name: str, llm_config: LlmConfig) -> bool:
-    """Check if a provider is configured and enabled."""
+def _provider_is_available(
+    provider_name: str, llm_config: LlmConfig, model_id: Optional[str] = None
+) -> bool:
+    """Check if a provider is configured, enabled, and (optionally) has a specific model."""
     provider = llm_config.providers.get(provider_name)
     if not provider or not provider.enabled:
         return False
-    # Ollama only needs base_url, others need api_key
-    if provider_name == "ollama":
-        return _is_resolved(provider.base_url)
-    return _is_resolved(provider.api_key) or _is_resolved(provider.base_url)
+
+    # Check credentials
+    has_creds = (
+        _is_resolved(provider.base_url)
+        if provider_name == "ollama"
+        else _is_resolved(provider.api_key) or _is_resolved(provider.base_url)
+    )
+    if not has_creds:
+        return False
+
+    # If model_id is specified, check if it's in the provider's model list
+    if model_id:
+        return any(m.id == model_id for m in provider.models)
+
+    return True
 
 
 def resolve_model(requested_model: str, llm_config: LlmConfig) -> list[str]:
     """Resolve a model request to a list of models to try, in fallback order.
 
-    If the requested model's provider is available, try it first.
-    Then try equivalent models from providers in the fallback_order list.
+    Uses llm_config.default_model if requested_model is "auto" or empty.
+    Then tries the model, followed by backup_model if set, then fallback_order providers.
 
     Returns a list of LiteLLM model strings to attempt in order.
     """
     models_to_try = []
 
-    # 1. Try the explicitly requested model first (unless "auto")
+    # Resolve "auto" to configured default_model
+    if not requested_model or requested_model == "auto":
+        requested_model = llm_config.default_model or "auto"
+
+    # 1. Try the explicitly requested model first (unless still "auto")
     provider = _get_provider_for_model(requested_model)
-    if requested_model != "auto" and provider and _provider_is_available(provider, llm_config):
+    if requested_model != "auto" and provider and _provider_is_available(provider, llm_config, requested_model):
         models_to_try.append(requested_model)
+
+    # Add backup model as second choice if different and configured
+    if llm_config.backup_model and llm_config.backup_model != requested_model:
+        backup_provider = _get_provider_for_model(llm_config.backup_model)
+        if backup_provider and _provider_is_available(backup_provider, llm_config, llm_config.backup_model):
+            if llm_config.backup_model not in models_to_try:
+                models_to_try.append(llm_config.backup_model)
 
     # 2. Walk the fallback_order and pick the first available model from each
     for fallback_provider in llm_config.fallback_order:

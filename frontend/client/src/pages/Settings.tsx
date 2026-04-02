@@ -9,10 +9,17 @@ import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { fetchSettings, saveSettings, testSmtp, testLlm, fetchOpenRouterModels, setOpenRouterModel, updateProviderApiKey, updateGitHubToken } from "@/lib/api";
-import type { Settings } from "@/lib/types";
+import { fetchSettings, saveSettings, testSmtp, testLlm, fetchOpenRouterModels, setOpenRouterModel, updateProviderApiKey, updateGitHubToken, fetchModels } from "@/lib/api";
+import type { Settings, LLMModel } from "@/lib/types";
 import {
   Mail,
   Server,
@@ -51,6 +58,12 @@ export default function SettingsPage() {
     queryFn: fetchOpenRouterModels,
   });
 
+  // All models for default/backup selection
+  const { data: allModels = [] } = useQuery<LLMModel[]>({
+    queryKey: ["/api/settings/models"],
+    queryFn: fetchModels,
+  });
+
   const [initialized, setInitialized] = useState(false);
   const [smtpHost, setSmtpHost] = useState("");
   const [smtpPort, setSmtpPort] = useState("");
@@ -74,6 +87,10 @@ export default function SettingsPage() {
   const [orSearch, setOrSearch] = useState("");
   const [orSelectedModel, setOrSelectedModel] = useState("");
 
+  // Default and backup model state
+  const [defaultModel, setDefaultModel] = useState("auto");
+  const [backupModel, setBackupModel] = useState("");
+
   // Initialize form from API data
   if (settings && !initialized) {
     setSmtpHost(settings.smtp?.host || "");
@@ -91,6 +108,8 @@ export default function SettingsPage() {
     if (orProvider?.models?.[0]) {
       setOrSelectedModel(orProvider.models[0].id);
     }
+    setDefaultModel(settings.llm?.default_model || "auto");
+    setBackupModel(settings.llm?.backup_model || "");
     // Initialize editing API keys
     const initialKeys: Record<string, string> = {};
     for (const [name, provider] of Object.entries(settings.llm?.providers || {})) {
@@ -130,6 +149,15 @@ export default function SettingsPage() {
       retention: {
         results_days: retentionDays,
         max_days: 0,
+      },
+    } as Partial<Settings>);
+  };
+
+  const handleSaveLlmDefaults = () => {
+    saveMutation.mutate({
+      llm: {
+        default_model: defaultModel,
+        backup_model: backupModel,
       },
     } as Partial<Settings>);
   };
@@ -331,6 +359,64 @@ export default function SettingsPage() {
         {/* LLM Providers Tab */}
         <TabsContent value="llm">
           <div className="space-y-3">
+            {/* Default and Backup Models */}
+            <Card className="bg-card border-card-border">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Brain className="w-4 h-4" /> Default & Backup Models
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">Used by all tasks unless overridden in the task editor.</p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Default Model</Label>
+                    <Select value={defaultModel} onValueChange={setDefaultModel}>
+                      <SelectTrigger className="mt-1 h-9">
+                        <SelectValue placeholder="Select default model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto (fallback order)</SelectItem>
+                        {allModels
+                          .sort((a, b) => (a.configured === b.configured ? 0 : a.configured ? -1 : 1))
+                          .map((model) => (
+                            <SelectItem key={model.id} value={model.id}>
+                              {model.name} <span className="text-[10px] text-muted-foreground">({model.id})</span>
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Backup Model</Label>
+                    <Select value={backupModel || "__none__"} onValueChange={(v) => setBackupModel(v === "__none__" ? "" : v)}>
+                      <SelectTrigger className="mt-1 h-9">
+                        <SelectValue placeholder="Select backup model (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">None</SelectItem>
+                        {allModels
+                          .sort((a, b) => (a.configured === b.configured ? 0 : a.configured ? -1 : 1))
+                          .map((model) => (
+                            <SelectItem key={model.id} value={model.id}>
+                              {model.name} <span className="text-[10px] text-muted-foreground">({model.id})</span>
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={handleSaveLlmDefaults}
+                  disabled={saveMutation.isPending}
+                >
+                  Save Default Models
+                </Button>
+              </CardContent>
+            </Card>
+
             {Object.keys(settings.llm?.providers || {}).length === 0 ? (
               <Card className="bg-card border-card-border">
                 <CardContent className="p-6 text-center">

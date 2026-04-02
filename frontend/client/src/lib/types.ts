@@ -150,6 +150,8 @@ export interface Settings {
   };
   llm: {
     providers: Record<string, LLMProvider>;
+    default_model?: string;
+    backup_model?: string;
   };
   retention: {
     results_days: number;

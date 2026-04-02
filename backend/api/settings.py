@@ -76,6 +76,12 @@ async def update_settings(data: dict):
             _store_secret("SMTP_PASSWORD", pwd)
             data["smtp"]["password"] = "${SMTP_PASSWORD}"
 
+    if "llm" in data and "providers" not in data.get("llm", {}):
+        # Merge top-level LLM fields (default_model, backup_model, fallback_order)
+        # without overwriting providers
+        current_llm = current_data.get("llm", {})
+        data["llm"] = {**current_llm, **data["llm"]}
+
     if "llm" in data and "providers" in data.get("llm", {}):
         for provider, cfg in data["llm"]["providers"].items():
             if not isinstance(cfg, dict):
