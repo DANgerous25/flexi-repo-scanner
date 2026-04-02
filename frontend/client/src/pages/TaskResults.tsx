@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useRoute, Link, useParams } from "wouter";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,9 +22,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { SeverityBadge, RunStatusBadge, ScanTypeBadge } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
-import { fetchTask, fetchTaskResults, fetchRunFindings, addToAllowlist, fetchFileContent, stopRun } from "@/lib/api";
+import { fetchTask, fetchTaskResults, fetchRunFindings, addToAllowlist, fetchFileContent, stopRun, analyzeFinding } from "@/lib/api";
 import CodeViewer from "@/components/CodeViewer";
 import type { Task, TaskRun, Finding } from "@/lib/types";
 import {
@@ -41,6 +47,7 @@ import {
   ShieldOff,
   ShieldCheck,
   StopCircle,
+  Brain,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -163,8 +170,22 @@ export default function TaskResults() {
   const [codeViewerLoading, setCodeViewerLoading] = useState(false);
   const [codeViewerError, setCodeViewerError] = useState<string | undefined>();
   const [stopping, setStopping] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [currentAnalysis, setCurrentAnalysis] = useState("");
+  const [currentFinding, setCurrentFinding] = useState<Finding | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const analyzeMutation = useMutation({
+    mutationFn: analyzeFinding,
+    onSuccess: (data) => {
+      setCurrentAnalysis(data.analysis);
+      setAnalysisOpen(true);
+    },
+    onError: (err: any) => {
+      toast({ title: "Analysis failed", description: err.message, variant: "destructive" });
+    },
+  });
 
   const { data: task, isLoading: taskLoading } = useQuery<Task>({
     queryKey: [`/api/tasks/${taskId}`],
@@ -196,6 +217,23 @@ export default function TaskResults() {
     });
     return groups;
   })();
+
+  const handleAskLLM = async (finding: Finding) => {
+    if (!task) return;
+    setCurrentFinding(finding);
+    setCurrentAnalysis("Analyzing with LLM...");
+    setAnalysisOpen(true);
+    try {
+      const fileRes = await fetchFileContent(task.connection, finding.file);
+      analyzeMutation.mutate({
+        finding,
+        file_content: fileRes.content,
+        task_id: taskId || "",
+      });
+    } catch (err: any) {
+      setCurrentAnalysis("Failed to load file context: " + err.message);
+    }
+  };
 
   if (taskLoading || runsLoading) {
     return (
@@ -497,7 +535,7 @@ export default function TaskResults() {
                             {finding.matched_text}
                           </code>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="flex items-center gap-1">
                           <AllowlistPopover
                             finding={finding}
                             taskId={taskId!}
@@ -506,6 +544,15 @@ export default function TaskResults() {
                               queryClient.invalidateQueries({ queryKey: [`/api/tasks/${taskId}`] });
                             }}
                           />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => handleAskLLM(finding)}
+                            title="Ask LLM to analyze this finding"
+                          >
+                            <Brain className="h-3.5 w-3.5" />
+                          </Button>
                         </TableCell>
                       </TableRow>
                       );
@@ -527,6 +574,34 @@ export default function TaskResults() {
         loading={codeViewerLoading}
         error={codeViewerError}
       />
+
+      {/* LLM Analysis Dialog */}
+      <Dialog open={analysisOpen} onOpenChange={setAnalysisOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Brain className="w-4 h-4" />
+              LLM Analysis: {currentFinding?.file || "Finding"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-4 text-sm whitespace-pre-wrap font-light leading-relaxed border-l-2 border-muted pl-4 py-2 bg-muted/50 rounded">
+            {currentAnalysis || "Analyzing with LLM..."}
+          </div>
+          {currentAnalysis && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-4"
+              onClick={() => {
+                navigator.clipboard.writeText(currentAnalysis);
+                toast({ title: "Copied to clipboard" });
+              }}
+            >
+              Copy Full Analysis
+            </Button>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
