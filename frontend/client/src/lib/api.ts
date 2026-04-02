@@ -24,15 +24,13 @@ async function get<T>(url: string): Promise<T> {
 
 async function post<T>(url: string, data?: unknown): Promise<T> {
   const sanitizedUrl = sanitizeString(url);
-  const sanitizedData = data ? JSON.parse(sanitizeString(JSON.stringify(data))) : undefined;
-  const res = await apiRequest("POST", sanitizedUrl, sanitizedData);
+  const res = await apiRequest("POST", sanitizedUrl, data);
   return res.json();
 }
 
 async function put<T>(url: string, data?: unknown): Promise<T> {
   const sanitizedUrl = sanitizeString(url);
-  const sanitizedData = data ? JSON.parse(sanitizeString(JSON.stringify(data))) : undefined;
-  const res = await apiRequest("PUT", sanitizedUrl, sanitizedData);
+  const res = await apiRequest("PUT", sanitizedUrl, data);
   return res.json();
 }
 
