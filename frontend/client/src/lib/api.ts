@@ -320,3 +320,15 @@ export async function fetchBenchmarks(): Promise<BenchmarkResult[]> {
 export async function startBenchmark(taskId: string, models: string[]): Promise<BenchmarkResult> {
   return post<BenchmarkResult>("/api/benchmarks", { task_id: taskId, models });
 }
+
+export async function analyzeFinding(data: {
+  finding: any;
+  file_content?: string;
+  task_id?: string;
+}): Promise<{
+  analysis: string;
+  model: string;
+  tokens: { input: number; output: number };
+}> {
+  return post("/api/results/analyze", data);
+}

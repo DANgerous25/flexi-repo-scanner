@@ -8,8 +8,10 @@ import json
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse, Response
+from pydantic import BaseModel
 
-from backend.storage import db
+from backend.llm import router as llm
+from backend.storage import config_loader, db
 
 router = APIRouter(prefix="/api/results", tags=["results"])
 
@@ -75,3 +77,48 @@ async def export_csv(run_id: str):
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=findings-{run_id}.csv"},
     )
+
+
+class AnalyzeFindingRequest(BaseModel):
+    finding: dict
+    file_content: str = ""
+    task_id: str = ""
+
+
+@router.post("/analyze")
+async def analyze_finding(req: AnalyzeFindingRequest):
+    """Use LLM to analyze a finding for validity in context."""
+    settings = config_loader.load_settings()
+
+    prompt = f"""You are a senior code security and quality expert.
+Analyze this finding for validity:
+
+FILE: {req.finding.get('file', 'unknown')}
+LINE: {req.finding.get('line', 'unknown')}
+SEVERITY: {req.finding.get('severity', 'medium')}
+CATEGORY: {req.finding.get('category', 'unknown')}
+RULE: {req.finding.get('rule_name', 'unknown')}
+MATCHED TEXT: {req.finding.get('matched_text', '')}
+DESCRIPTION: {req.finding.get('description', req.finding.get('context', ''))}
+
+FILE CONTEXT (first 1500 chars):
+{req.file_content[:1500]}
+
+Is this a real issue or false positive? Provide concise reasoning, confidence (high/medium/low), and recommended action (fix/ignore/allowlist)."""
+
+    result = await llm.complete(
+        model="auto",
+        messages=[{"role": "user", "content": prompt}],
+        settings=settings,
+        temperature=0.2,
+        max_tokens=800,
+    )
+
+    return {
+        "analysis": result.get("content", "No response from LLM."),
+        "model": result.get("model", "unknown"),
+        "tokens": {
+            "input": result.get("input_tokens", 0),
+            "output": result.get("output_tokens", 0),
+        },
+    }
