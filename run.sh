@@ -44,7 +44,7 @@ FRONTEND_PID=$!
 
 echo "Flexi Repo Scanner is running..."
 echo "- Backend API: http://localhost:8400"
-чета "- Frontend UI: http://localhost:5173"
+echo "- Frontend UI: http://localhost:5173"
 echo "Press Ctrl+C to stop"
 
 # Wait for both processes to complete
