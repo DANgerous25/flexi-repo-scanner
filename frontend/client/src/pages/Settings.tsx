@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { fetchSettings, saveSettings, testSmtp, testLlm, fetchOpenRouterModels, setOpenRouterModel } from "@/lib/api";
+import { fetchSettings, saveSettings, testSmtp, testLlm, fetchOpenRouterModels, setOpenRouterModel, updateProviderApiKey, updateGitHubToken } from "@/lib/api";
 import type { Settings } from "@/lib/types";
 import {
   Mail,
@@ -25,6 +25,7 @@ import {
   EyeOff,
   Clock,
   AlertTriangle,
+  Github,
 } from "lucide-react";
 
 export default function SettingsPage() {
@@ -35,6 +36,14 @@ export default function SettingsPage() {
     queryKey: ["/api/settings"],
     queryFn: fetchSettings,
   });
+
+  // Log settings when loaded
+  useEffect(() => {
+    if (settings) {
+      console.log("Settings loaded:", JSON.stringify(settings, null, 2));
+      console.log("LLM providers:", settings.llm?.providers);
+    }
+  }, [settings]);
 
   // OpenRouter models query
   const { data: openRouterModels, isLoading: loadingORModels } = useQuery({
@@ -53,7 +62,13 @@ export default function SettingsPage() {
   const [retentionDays, setRetentionDays] = useState(30);
   const [testingSmtp, setTestingSmtp] = useState(false);
   const [testingModel, setTestingModel] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, boolean>>({});
   const [showApiKeys, setShowApiKeys] = useState<Record<string, boolean>>({});
+  const [editingApiKeys, setEditingApiKeys] = useState<Record<string, string>>({});
+  const [savingProvider, setSavingProvider] = useState<string | null>(null);
+  const [githubToken, setGithubToken] = useState("");
+  const [showGithubToken, setShowGithubToken] = useState(false);
+  const [savingGithubToken, setSavingGithubToken] = useState(false);
 
   // OpenRouter model selection state
   const [orSearch, setOrSearch] = useState("");
@@ -69,11 +84,19 @@ export default function SettingsPage() {
     setSmtpFrom(settings.smtp?.from_address || "");
     setSmtpFromName(settings.smtp?.from_name || "");
     setRetentionDays(settings.retention?.results_days ?? 30);
+    // Initialize GitHub token state
+    setGithubToken(""); // Don't show masked value, use placeholder
     // Pre-select the current OpenRouter model
     const orProvider = settings.llm?.providers?.openrouter;
     if (orProvider?.models?.[0]) {
       setOrSelectedModel(orProvider.models[0].id);
     }
+    // Initialize editing API keys
+    const initialKeys: Record<string, string> = {};
+    for (const [name, provider] of Object.entries(settings.llm?.providers || {})) {
+      initialKeys[name] = (provider as any).api_key || "";
+    }
+    setEditingApiKeys(initialKeys);
     setInitialized(true);
   }
 
@@ -127,8 +150,10 @@ export default function SettingsPage() {
     setTestingModel(modelId);
     try {
       const result = await testLlm(modelId);
-      toast({ title: result.success ? "Model test successful" : "Model test failed", description: result.message });
+      setTestResults((prev) => ({ ...prev, [modelId]: result.success }));
+      toast({ title: result.success ? "Model test successful" : "Model test failed", description: result.message, variant: result.success ? "default" : "destructive" });
     } catch (err: any) {
+      setTestResults((prev) => ({ ...prev, [modelId]: false }));
       toast({ title: "Model test failed", description: err.message, variant: "destructive" });
     } finally {
       setTestingModel(null);
@@ -137,6 +162,53 @@ export default function SettingsPage() {
 
   const toggleShowKey = (provider: string) => {
     setShowApiKeys((prev) => ({ ...prev, [provider]: !prev[provider] }));
+  };
+
+  const handleApiKeyChange = (provider: string, value: string) => {
+    setEditingApiKeys((prev) => ({ ...prev, [provider]: value }));
+  };
+
+  const handleSaveProviderApiKey = async (providerName: string) => {
+    setSavingProvider(providerName);
+    try {
+      const newKey = editingApiKeys[providerName] || "";
+      await updateProviderApiKey(providerName, newKey);
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: `${providerName} API key updated` });
+    } catch (err: any) {
+      toast({ title: "Failed to update API key", description: err.message, variant: "destructive" });
+    } finally {
+      setSavingProvider(null);
+    }
+  };
+
+  const handleTestOpenRouter = async () => {
+    const modelId = orSelectedModel || "openrouter/auto";
+    setTestingModel(modelId);
+    try {
+      const result = await testLlm(modelId);
+      setTestResults((prev) => ({ ...prev, [modelId]: result.success }));
+      toast({ title: result.success ? "OpenRouter test successful" : "OpenRouter test failed", description: result.message, variant: result.success ? "default" : "destructive" });
+    } catch (err: any) {
+      setTestResults((prev) => ({ ...prev, [modelId]: false }));
+      toast({ title: "OpenRouter test failed", description: err.message, variant: "destructive" });
+    } finally {
+      setTestingModel(null);
+    }
+  };
+
+  const handleSaveGitHubToken = async () => {
+    setSavingGithubToken(true);
+    try {
+      await updateGitHubToken(githubToken);
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: "GitHub token updated" });
+      setGithubToken(""); // Clear the input after save
+    } catch (err: any) {
+      toast({ title: "Failed to update GitHub token", description: err.message, variant: "destructive" });
+    } finally {
+      setSavingGithubToken(false);
+    }
   };
 
   // OpenRouter model change handler
@@ -167,10 +239,12 @@ export default function SettingsPage() {
   }
 
   if (error || !settings) {
+    console.error("Settings error or missing:", { error, settings });
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <AlertTriangle className="w-8 h-8 text-muted-foreground mb-3" />
         <p className="text-sm text-muted-foreground">Failed to load settings{error ? `: ${(error as Error).message}` : ""}</p>
+        <p className="text-xs text-muted-foreground mt-2">Check console for details</p>
       </div>
     );
   }
@@ -257,7 +331,14 @@ export default function SettingsPage() {
         {/* LLM Providers Tab */}
         <TabsContent value="llm">
           <div className="space-y-3">
-            {Object.entries(settings.llm?.providers || {}).map(([providerName, provider]) => (
+            {Object.keys(settings.llm?.providers || {}).length === 0 ? (
+              <Card className="bg-card border-card-border">
+                <CardContent className="p-6 text-center">
+                  <p className="text-sm text-muted-foreground">No LLM providers configured. Add providers in config/settings.yaml or via the API.</p>
+                </CardContent>
+              </Card>
+            ) : (
+            Object.entries(settings.llm?.providers || {}).map(([providerName, provider]) => (
               <Card key={providerName} className="bg-card border-card-border" data-testid={`card-provider-${providerName}`}>
                 <CardContent className="p-4 space-y-3">
                   <div className="flex items-center justify-between">
@@ -273,9 +354,10 @@ export default function SettingsPage() {
                       <div className="flex items-center gap-2 mt-1">
                         <Input
                           type={showApiKeys[providerName] ? "text" : "password"}
-                          value={provider.api_key}
+                          value={editingApiKeys[providerName] ?? provider.api_key}
+                          onChange={(e) => handleApiKeyChange(providerName, e.target.value)}
                           className="h-8 text-xs font-code bg-background border-border"
-                          readOnly
+                          placeholder="Enter API key..."
                         />
                         <Button
                           variant="ghost"
@@ -284,6 +366,17 @@ export default function SettingsPage() {
                           onClick={() => toggleShowKey(providerName)}
                         >
                           {showApiKeys[providerName] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs gap-1.5"
+                          onClick={() => handleSaveProviderApiKey(providerName)}
+                          disabled={savingProvider === providerName}
+                          data-testid={`button-save-api-key-${providerName}`}
+                        >
+                          {savingProvider === providerName ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                          Save
                         </Button>
                       </div>
                     </div>
@@ -305,6 +398,21 @@ export default function SettingsPage() {
                             <span className="text-xs font-medium text-foreground">Active model:</span>
                             <span className="text-[10px] font-code text-muted-foreground ml-2">{orSelectedModel || "Not set"}</span>
                           </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                            onClick={handleTestOpenRouter}
+                            disabled={testingModel !== null}
+                            data-testid="button-test-openrouter"
+                          >
+                            {testingModel ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-3 h-3" />
+                            )}
+                            Test
+                          </Button>
                         </div>
                         <Input
                           placeholder="Search OpenRouter models..."
@@ -336,7 +444,7 @@ export default function SettingsPage() {
                       </div>
                     ) : (
                       <div className="mt-1.5 space-y-1.5">
-                        {provider.models.map((model) => (
+                        {provider.models.map((model: any) => (
                           <div key={model.id} className="flex items-center justify-between p-2 rounded bg-background border border-border">
                             <div>
                               <span className="text-xs font-medium text-foreground">{model.name}</span>
@@ -364,7 +472,8 @@ export default function SettingsPage() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            ))
+            )}
           </div>
         </TabsContent>
 

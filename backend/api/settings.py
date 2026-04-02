@@ -151,7 +151,13 @@ async def test_llm(model_id: str):
     """Test an LLM model connection."""
     settings = config_loader.load_settings()
     result = await llm.test_model(model_id, settings)
-    return result
+    # Normalize response to match frontend expectations
+    return {
+        "success": result.get("ok", False),
+        "message": result.get("error") or f"Model {model_id} responded in {result.get('time_seconds', 0):.2f}s",
+        "model": model_id,
+        "time_seconds": result.get("time_seconds", 0),
+    }
 
 
 @router.get("/models")
@@ -217,3 +223,68 @@ async def list_openrouter_models():
             }
     except Exception as e:
         raise HTTPException(502, f"Failed to fetch OpenRouter models: {e}")
+
+
+class ProviderApiKeyUpdate(BaseModel):
+    provider: str
+    api_key: str
+
+
+@router.post("/provider-api-key")
+async def update_provider_api_key(data: ProviderApiKeyUpdate):
+    """Update a provider's API key without touching other settings."""
+    provider_name = data.provider
+    new_api_key = data.api_key.strip()
+
+    if not provider_name:
+        raise HTTPException(400, "provider is required")
+
+    current = config_loader.load_settings()
+    current_data = current.model_dump()
+
+    # Ensure provider exists
+    providers = current_data.get("llm", {}).get("providers", {})
+    if provider_name not in providers:
+        raise HTTPException(400, f"Provider '{provider_name}' not configured")
+
+    # Update the API key
+    if new_api_key and not new_api_key.startswith("***"):
+        # Store in vault
+        env_var = _PROVIDER_ENV_MAP.get(provider_name, f"{provider_name.upper()}_API_KEY")
+        _store_secret(env_var, new_api_key)
+        providers[provider_name]["api_key"] = "${" + env_var + "}"
+    elif not new_api_key:
+        # Clear the API key
+        providers[provider_name]["api_key"] = ""
+    # If key starts with ***, it's the masked value - don't change it
+
+    current_data["llm"]["providers"] = providers
+    settings = AppSettings(**current_data)
+    config_loader.save_settings(settings)
+
+    return {"message": f"API key updated for {provider_name}"}
+
+
+class GitHubTokenUpdate(BaseModel):
+    token: str
+
+
+@router.post("/github-token")
+async def update_github_token(data: GitHubTokenUpdate):
+    """Update the GitHub PAT token stored in the vault."""
+    new_token = data.token.strip()
+
+    if not new_token:
+        raise HTTPException(400, "token is required")
+
+    # Store in vault
+    _store_secret("GITHUB_TOKEN", new_token)
+
+    # Update connections.yaml to use the vault reference
+    from backend.storage import config_loader as cl
+    connections = cl.load_connections()
+    for conn in connections:
+        conn.token = "${GITHUB_TOKEN}"
+    cl.save_connections(connections)
+
+    return {"message": "GitHub token updated"}

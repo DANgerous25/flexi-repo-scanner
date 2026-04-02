@@ -276,6 +276,14 @@ export async function setOpenRouterModel(modelId: string, modelName: string): Pr
   return post<{ message: string; model: string }>("/api/settings/openrouter-model", { model_id: modelId, model_name: modelName });
 }
 
+export async function updateProviderApiKey(providerName: string, apiKey: string): Promise<{ message: string }> {
+  return post<{ message: string }>("/api/settings/provider-api-key", { provider: providerName, api_key: apiKey });
+}
+
+export async function updateGitHubToken(token: string): Promise<{ message: string }> {
+  return post<{ message: string }>("/api/settings/github-token", { token });
+}
+
 // ── Notifications ───────────────────────────────────────
 
 export async function fetchNotifications(): Promise<Notification[]> {

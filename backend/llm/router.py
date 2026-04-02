@@ -253,6 +253,26 @@ async def complete_single(
 
 async def test_model(model: str, settings: AppSettings) -> dict:
     """Test if a model is accessible (no fallback)."""
+    # Ensure model has provider prefix for LiteLLM
+    # OpenRouter models have IDs like "qwen/qwen3.6-plus-preview:free" but LiteLLM needs "openrouter/qwen/..."
+    # Check if model already has a provider prefix
+    model_parts = model.split("/")
+    has_provider_prefix = len(model_parts) >= 2 and model_parts[0] in settings.llm.providers
+    
+    if not has_provider_prefix:
+        # Try to find the model in configured providers and add provider prefix
+        for provider_name, provider_config in settings.llm.providers.items():
+            for m in provider_config.models:
+                # Match by model ID (which might be the same as the LiteLLM model name)
+                if m.id == model or m.id.endswith(model) or model.endswith(m.id.split("/")[-1]):
+                    # Add provider prefix if not already present
+                    if not model.startswith(provider_name + "/"):
+                        model = f"{provider_name}/{model}" if "/" not in model else f"{provider_name}/{model.split('/')[-1]}"
+                    break
+            else:
+                continue
+            break
+    
     result = await complete_single(
         model=model,
         messages=[{"role": "user", "content": "Reply with 'OK' and nothing else."}],
