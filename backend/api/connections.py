@@ -80,6 +80,10 @@ async def get_file_content(conn_id: str, path: str, ref: str = "main"):
     if not conn:
         raise HTTPException(404, "Connection not found")
 
+    # Use connection's default branch if ref is the generic "main"
+    if ref == "main":
+        ref = conn.default_branch or "main"
+
     client = GitHubClient(owner=conn.owner, repo=conn.repo, token=conn.token)
     try:
         resp = await client.client.get(
