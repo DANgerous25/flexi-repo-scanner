@@ -209,12 +209,19 @@ export async function generateRules(
   model: string;
   tokens: { input: number; output: number };
 }> {
-  return post<{
+  const result = await post<{
     suggestions: string;
     parsed: Record<string, unknown>;
     model: string;
     tokens: { input: number; output: number };
+    error?: string;
   }>("/api/tasks/generate", { mode, prompt, current_config: currentConfig });
+
+  if (result.error) {
+    throw new Error(result.error);
+  }
+
+  return result;
 }
 
 // ── Allowlist ────────────────────────────────────────────
