@@ -91,7 +91,15 @@ async def analyze_finding(req: AnalyzeFindingRequest):
     settings = config_loader.load_settings()
 
     prompt = f"""You are a senior code security and quality expert.
-Analyze this finding for validity:
+Analyze this finding for validity and output ONLY valid JSON (no other text):
+
+{{
+  "analysis": "detailed reasoning if real issue or false positive, with context from the code",
+  "is_valid": true/false,
+  "confidence": "high/medium/low",
+  "recommended_action": "fix/ignore/allowlist",
+  "suggested_fix_prompt": "a detailed prompt that can be pasted into an AI coding agent to fix this specific issue (include the exact code change suggestion)"
+}}
 
 FILE: {req.finding.get('file', 'unknown')}
 LINE: {req.finding.get('line', 'unknown')}
@@ -102,9 +110,7 @@ MATCHED TEXT: {req.finding.get('matched_text', '')}
 DESCRIPTION: {req.finding.get('description', req.finding.get('context', ''))}
 
 FILE CONTEXT (first 1500 chars):
-{req.file_content[:1500]}
-
-Is this a real issue or false positive? Provide concise reasoning, confidence (high/medium/low), and recommended action (fix/ignore/allowlist)."""
+{req.file_content[:1500]}"""
 
     result = await llm.complete(
         model="auto",
@@ -114,11 +120,25 @@ Is this a real issue or false positive? Provide concise reasoning, confidence (h
         max_tokens=800,
     )
 
-    return {
-        "analysis": result.get("content", "No response from LLM."),
-        "model": result.get("model", "unknown"),
-        "tokens": {
-            "input": result.get("input_tokens", 0),
-            "output": result.get("output_tokens", 0),
-        },
-    }
+    analysis_text = result.get("content", "No response from LLM.")
+    try:
+        import json
+        parsed = json.loads(analysis_text.strip())
+        return {
+            "analysis": parsed,
+            "raw": analysis_text,
+            "model": result.get("model", "unknown"),
+            "tokens": {
+                "input": result.get("input_tokens", 0),
+                "output": result.get("output_tokens", 0),
+            },
+        }
+    except:
+        return {
+            "analysis": analysis_text,
+            "model": result.get("model", "unknown"),
+            "tokens": {
+                "input": result.get("input_tokens", 0),
+                "output": result.get("output_tokens", 0),
+            },
+        }

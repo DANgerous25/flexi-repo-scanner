@@ -171,7 +171,7 @@ export default function TaskResults() {
   const [codeViewerError, setCodeViewerError] = useState<string | undefined>();
   const [stopping, setStopping] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
-  const [currentAnalysis, setCurrentAnalysis] = useState("");
+  const [currentAnalysisData, setCurrentAnalysisData] = useState<any>(null);
   const [currentFinding, setCurrentFinding] = useState<Finding | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -179,11 +179,12 @@ export default function TaskResults() {
   const analyzeMutation = useMutation({
     mutationFn: analyzeFinding,
     onSuccess: (data) => {
-      setCurrentAnalysis(data.analysis);
+      setCurrentAnalysisData(data);
       setAnalysisOpen(true);
     },
     onError: (err: any) => {
       toast({ title: "Analysis failed", description: err.message, variant: "destructive" });
+      setCurrentAnalysisData({ analysis: "Error: " + err.message });
     },
   });
 
@@ -221,7 +222,7 @@ export default function TaskResults() {
   const handleAskLLM = async (finding: Finding) => {
     if (!task) return;
     setCurrentFinding(finding);
-    setCurrentAnalysis("Analyzing with LLM...");
+    setCurrentAnalysisData({ analysis: "Analyzing with LLM..." });
     setAnalysisOpen(true);
     try {
       const fileRes = await fetchFileContent(task.connection, finding.file);
@@ -231,7 +232,7 @@ export default function TaskResults() {
         task_id: taskId || "",
       });
     } catch (err: any) {
-      setCurrentAnalysis("Failed to load file context: " + err.message);
+      setCurrentAnalysisData({ analysis: "Failed to load file context: " + err.message });
     }
   };
 
@@ -581,25 +582,45 @@ export default function TaskResults() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Brain className="w-4 h-4" />
-              LLM Analysis: {currentFinding?.file || "Finding"}
+              LLM Analysis: {currentFinding?.file || "Finding"} (model: {currentAnalysisData?.model || 'unknown'})
             </DialogTitle>
           </DialogHeader>
-          <div className="mt-4 text-sm whitespace-pre-wrap font-light leading-relaxed border-l-2 border-muted pl-4 py-2 bg-muted/50 rounded">
-            {currentAnalysis || "Analyzing with LLM..."}
+          <div className="mt-4 space-y-4">
+            <div className="text-sm whitespace-pre-wrap font-light leading-relaxed border-l-2 border-muted pl-4 py-2 bg-muted/50 rounded">
+              {typeof currentAnalysisData?.analysis === 'string'
+                ? currentAnalysisData.analysis
+                : JSON.stringify(currentAnalysisData?.analysis, null, 2) || "Analyzing with LLM..."}
+            </div>
+            {currentAnalysisData && (
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const text = typeof currentAnalysisData.analysis === 'string'
+                      ? currentAnalysisData.analysis
+                      : JSON.stringify(currentAnalysisData, null, 2);
+                    navigator.clipboard.writeText(text);
+                    toast({ title: "Copied analysis to clipboard" });
+                  }}
+                >
+                  Copy Analysis
+                </Button>
+                {currentAnalysisData.analysis && typeof currentAnalysisData.analysis === 'object' && currentAnalysisData.analysis.suggested_fix_prompt && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(currentAnalysisData.analysis.suggested_fix_prompt);
+                      toast({ title: "Copied fix prompt to clipboard" });
+                    }}
+                  >
+                    Copy Fix Prompt
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
-          {currentAnalysis && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-4"
-              onClick={() => {
-                navigator.clipboard.writeText(currentAnalysis);
-                toast({ title: "Copied to clipboard" });
-              }}
-            >
-              Copy Full Analysis
-            </Button>
-          )}
         </DialogContent>
       </Dialog>
     </div>
