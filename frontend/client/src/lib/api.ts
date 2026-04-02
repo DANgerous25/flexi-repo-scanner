@@ -13,18 +13,26 @@ import type {
 
 // ── Generic helpers ─────────────────────────────────────
 
+function sanitizeString(str: string): string {
+  return str.replace(/[^a-zA-Z0-9 .,_\-/:_]/g, "");
+}
+
 async function get<T>(url: string): Promise<T> {
-  const res = await apiRequest("GET", url);
+  const res = await apiRequest("GET", sanitizeString(url));
   return res.json();
 }
 
 async function post<T>(url: string, data?: unknown): Promise<T> {
-  const res = await apiRequest("POST", url, data);
+  const sanitizedUrl = sanitizeString(url);
+  const sanitizedData = data ? JSON.parse(sanitizeString(JSON.stringify(data))) : undefined;
+  const res = await apiRequest("POST", sanitizedUrl, sanitizedData);
   return res.json();
 }
 
 async function put<T>(url: string, data?: unknown): Promise<T> {
-  const res = await apiRequest("PUT", url, data);
+  const sanitizedUrl = sanitizeString(url);
+  const sanitizedData = data ? JSON.parse(sanitizeString(JSON.stringify(data))) : undefined;
+  const res = await apiRequest("PUT", sanitizedUrl, sanitizedData);
   return res.json();
 }
 

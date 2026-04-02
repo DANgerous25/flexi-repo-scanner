@@ -1,6 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { toast } from "@/hooks/use-toast";
 
-// In dev with Vite proxy, just use relative paths. 
+// In dev with Vite proxy, just use relative paths.
 // In production, the FastAPI backend serves the static files.
 const API_BASE = "";
 
@@ -16,15 +17,25 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(`${API_BASE}${url}`, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-  });
+  try {
+    const res = await fetch(`${API_BASE}${url}`, {
+      method,
+      headers: data ? { "Content-Type": "application/json" } : {},
+      body: data ? JSON.stringify(data) : undefined,
+    });
 
-  await throwIfResNotOk(res);
-  return res;
+    await throwIfResNotOk(res);
+    return res;
+  } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast({ variant: "destructive", title: "API Error", description: message });
+      throw error;
+    }
 }
+
+window.addEventListener("unhandledrejection", (event) => {
+  toast({ variant: "destructive", title: "Unhandled Error", description: event.reason.message });
+});
 
 type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn: <T>(options: {
