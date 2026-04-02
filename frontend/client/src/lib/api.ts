@@ -14,7 +14,7 @@ import type {
 // ── Generic helpers ─────────────────────────────────────
 
 function sanitizeString(str: string): string {
-  return str.replace(/[^a-zA-Z0-9 .,_\-/:_]/g, "");
+  return str.replace(/[^a-zA-Z0-9 .,_\-/:_?=&%]/g, "");
 }
 
 async function get<T>(url: string): Promise<T> {
