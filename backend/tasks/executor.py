@@ -52,6 +52,50 @@ def _slice_text(lines: list[str], srow: int, scol: int, erow: int, ecol: int) ->
     return "\n".join(parts)
 
 
+def _build_node(elem: ET.Element, lines: list[str]) -> Optional[dict[str, Any]]:
+    if elem.tag in ("sources", "source"):
+        return None
+    srow = elem.attrib.get("srow")
+    scol = elem.attrib.get("scol")
+    erow = elem.attrib.get("erow")
+    ecol = elem.attrib.get("ecol")
+    if srow is None or scol is None or erow is None or ecol is None:
+        return None
+    try:
+        srow_i = int(srow)
+        scol_i = int(scol)
+        erow_i = int(erow)
+        ecol_i = int(ecol)
+    except ValueError:
+        return None
+    node: dict[str, Any] = {
+        "type": elem.tag,
+        "srow": srow_i,
+        "scol": scol_i,
+        "erow": erow_i,
+        "ecol": ecol_i,
+        "text": _slice_text(lines, srow_i, scol_i, erow_i, ecol_i),
+        "children": [],
+        "fields": {},
+    }
+    for child in list(elem):
+        child_node = _build_node(child, lines)
+        if not child_node:
+            continue
+        node["children"].append(child_node)
+        field_name = child.attrib.get("field")
+        if field_name:
+            node["fields"].setdefault(field_name, []).append(child_node)
+    return node
+
+
+def _flatten_nodes(root: dict[str, Any]) -> list[dict[str, Any]]:
+    nodes = [root]
+    for child in root.get("children", []):
+        nodes.extend(_flatten_nodes(child))
+    return nodes
+
+
 def _parse_cli_nodes(content: str, language_name: str, ext: str) -> list[dict[str, Any]]:
     if language_name in _language_failures:
         return []
@@ -103,33 +147,11 @@ def _parse_cli_nodes(content: str, language_name: str, ext: str) -> list[dict[st
 
         root = ET.fromstring(result.stdout)
         nodes: list[dict[str, Any]] = []
-        for elem in root.iter():
-            if elem.tag in ("sources", "source"):
-                continue
-            srow = elem.attrib.get("srow")
-            scol = elem.attrib.get("scol")
-            erow = elem.attrib.get("erow")
-            ecol = elem.attrib.get("ecol")
-            if srow is None or scol is None or erow is None or ecol is None:
-                continue
-            try:
-                srow_i = int(srow)
-                scol_i = int(scol)
-                erow_i = int(erow)
-                ecol_i = int(ecol)
-            except ValueError:
-                continue
-            text = _slice_text(lines, srow_i, scol_i, erow_i, ecol_i)
-            nodes.append(
-                {
-                    "type": elem.tag,
-                    "srow": srow_i,
-                    "scol": scol_i,
-                    "erow": erow_i,
-                    "ecol": ecol_i,
-                    "text": text,
-                }
-            )
+        for source in root.findall(".//source"):
+            for child in list(source):
+                node = _build_node(child, lines)
+                if node:
+                    nodes.extend(_flatten_nodes(node))
         return nodes
     except subprocess.TimeoutExpired:
         logger.error("Tree-sitter CLI timed out for %s (lang: %s)", tmp_path, language_name)
@@ -142,12 +164,102 @@ def _parse_cli_nodes(content: str, language_name: str, ext: str) -> list[dict[st
             os.remove(tmp_path)
 
 
+def _descendants(node: dict[str, Any]) -> list[dict[str, Any]]:
+    found = []
+    for child in node.get("children", []):
+        found.append(child)
+        found.extend(_descendants(child))
+    return found
+
+
+def _node_text(node: dict[str, Any]) -> str:
+    return node.get("text", "")
+
+
+def _match_children(node: dict[str, Any], patterns: list[AstNodePattern]) -> bool:
+    children = node.get("children", [])
+    for pattern in patterns:
+        if not any(_match_ast_node(child, pattern) for child in children):
+            return False
+    return True
+
+
+def _count_parameters(params_node: dict[str, Any]) -> int:
+    count = 0
+    for child in _descendants(params_node):
+        t = child.get("type", "")
+        if t.endswith("parameter") or t in ("identifier", "typed_parameter", "default_parameter"):
+            count += 1
+    return count
+
+
+def _match_constraints(node: dict[str, Any], constraints: dict[str, Any]) -> bool:
+    for name, value in constraints.items():
+        if name == "args_count":
+            if not isinstance(value, dict):
+                continue
+            min_args = value.get("min", 0)
+            max_args = value.get("max", 10**9)
+            params_nodes = node.get("fields", {}).get("parameters", [])
+            if not params_nodes:
+                return False
+            arg_count = _count_parameters(params_nodes[0])
+            if not (min_args <= arg_count <= max_args):
+                return False
+        elif name == "min_length":
+            if len(_node_text(node)) < int(value):
+                return False
+    return True
+
+
 def _match_ast_node(node: dict[str, Any], pattern: AstNodePattern) -> bool:
     if pattern.node_type and node["type"] != pattern.node_type:
         return False
-    if pattern.value_regex:
-        if not re.search(pattern.value_regex, node.get("text", "")):
-            return False
+
+    if pattern.properties:
+        for prop_name, prop_value in pattern.properties.items():
+            if prop_name == "function_name":
+                func_nodes = node.get("fields", {}).get("function", [])
+                if not func_nodes:
+                    func_nodes = node.get("fields", {}).get("name", [])
+                if not func_nodes:
+                    func_nodes = [
+                        n
+                        for n in _descendants(node)
+                        if n.get("type") in ("identifier", "attribute", "member_expression", "property_identifier")
+                    ]
+                if not any(_node_text(n) == prop_value or _node_text(n).endswith(f".{prop_value}") for n in func_nodes):
+                    return False
+            elif prop_name == "operator":
+                op_nodes = node.get("fields", {}).get("operator", [])
+                if op_nodes:
+                    if not any(_node_text(n).strip() == prop_value for n in op_nodes):
+                        return False
+                elif prop_value not in _node_text(node):
+                    return False
+            else:
+                field_nodes = node.get("fields", {}).get(prop_name, [])
+                if not field_nodes:
+                    return False
+                if isinstance(prop_value, str):
+                    if not any(_node_text(n).strip() == prop_value for n in field_nodes):
+                        return False
+
+    target_text = _node_text(node)
+    if pattern.node_type == "string":
+        content_nodes = [c for c in node.get("children", []) if c.get("type") == "string_content"]
+        if content_nodes:
+            target_text = _node_text(content_nodes[0])
+
+    if pattern.value_regex and not re.search(pattern.value_regex, target_text):
+        return False
+
+    if pattern.constraints and not _match_constraints(node, pattern.constraints):
+        return False
+
+    if pattern.children and not _match_children(node, pattern.children):
+        return False
+
     return True
 
 
