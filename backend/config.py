@@ -144,14 +144,32 @@ class LlmScanConfig(BaseModel):
     max_files_per_run: int = 50
 
 
+class AstNodePattern(BaseModel):
+    node_type: str
+    properties: dict[str, Any] = Field(default_factory=dict)
+    children: Optional[list[AstNodePattern]] = None
+    value_regex: Optional[str] = None
+    constraints: dict[str, Any] = Field(default_factory=dict)
+
+
+class AstRule(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    severity: str = "medium"
+    language: str = "python"
+    pattern: AstNodePattern
+
+
 class ScanConfig(BaseModel):
     mode: str = "full"  # "full" or "diff"
-    type: str = "pattern"  # "pattern", "llm-review", "doc-coverage"
+    type: str = "pattern"  # "pattern", "llm-review", "doc-coverage", "ast-pattern"
     paths: dict[str, list[str]] = Field(default_factory=lambda: {
         "include": ["**/*"],
         "exclude": ["node_modules/", "*.lock", "dist/", "build/", "__pycache__/"],
     })
     rules: list[ScanRule] = Field(default_factory=list)
+    ast_rules: list[AstRule] = Field(default_factory=list)
     llm: LlmScanConfig = Field(default_factory=LlmScanConfig)
     allowlist: list[AllowlistEntry] = Field(default_factory=list)
     context_filters: list[ContextFilter] = Field(default_factory=list)
