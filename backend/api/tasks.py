@@ -292,8 +292,8 @@ async def run_task_now(task_id: str):
     async def _run():
         try:
             await executor.run_task(task, settings)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to execute task {task.id} in background: {e}", exc_info=True)
 
     task_obj = asyncio.create_task(_run())
     return {"message": f"Task {task_id} triggered", "task_id": task_id}
