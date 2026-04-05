@@ -23,6 +23,7 @@ from backend.actions import email_report, github_issue, generate_prompt, in_app_
 logger = logging.getLogger(__name__)
 
 _running_runs: dict[str, asyncio.Task] = {}
+_language_failures: set[str] = set()
 
 # Map file extensions to language names for tree-sitter CLI
 LANGUAGE_NAMES = {
@@ -71,9 +72,12 @@ def _get_parser_for_file(file_path: str) -> Optional[DummyParser]:
 
     # Attempt to parse using tree-sitter CLI
     # This is a basic check; a real implementation would process the AST output.
+    if language_name in _language_failures:
+        return None
+
+    dummy_file_path = f"/tmp/tree_sitter_dummy{os.getpid()}{ext}"
     try:
         # Create a dummy file to parse as tree-sitter CLI requires a file path
-        dummy_file_path = f"/tmp/tree_sitter_dummy{os.getpid()}{ext}"
         with open(dummy_file_path, "w") as f:
             f.write("// dummy content")
         
@@ -89,7 +93,21 @@ def _get_parser_for_file(file_path: str) -> Optional[DummyParser]:
         logger.info(f"Tree-sitter CLI parse successful for {file_path} (lang: {language_name})")
         return DummyParser()
     except subprocess.CalledProcessError as e:
-        logger.error(f"Tree-sitter CLI failed to parse {file_path} (lang: {language_name}): {e.stderr}")
+        stderr = e.stderr or ""
+        if "No language found" in stderr or "parser directories" in stderr:
+            _language_failures.add(language_name)
+            logger.warning(
+                "Tree-sitter CLI language '%s' unavailable. Skipping further %s files.",
+                language_name,
+                language_name,
+            )
+        else:
+            logger.error(
+                "Tree-sitter CLI failed to parse %s (lang: %s): %s",
+                file_path,
+                language_name,
+                stderr,
+            )
         return None
     except subprocess.TimeoutExpired:
         logger.error(f"Tree-sitter CLI timed out for {file_path} (lang: {language_name})")
