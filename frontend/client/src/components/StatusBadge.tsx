@@ -18,8 +18,12 @@ const stateConfig: Record<TaskState, { label: string; className: string; icon: t
   partial: { label: "Partial", className: "status-partial", icon: AlertTriangle },
 };
 
-export function TaskStateBadge({ state }: { state: TaskState }) {
-  const config = stateConfig[state];
+export function TaskStateBadge({ state }: { state: TaskState | string }) {
+  const config = stateConfig[state as TaskState] || {
+    label: String(state || "Unknown"),
+    className: "status-inactive",
+    icon: MinusCircle,
+  };
   const Icon = config.icon;
   return (
     <Badge variant="outline" className={`${config.className} gap-1 text-xs font-medium border`} data-testid={`badge-state-${state}`}>
@@ -37,11 +41,11 @@ const severityConfig: Record<Severity, { className: string }> = {
   info: { className: "bg-zinc-500/15 text-zinc-400 border-zinc-500/20" },
 };
 
-export function SeverityBadge({ severity }: { severity: Severity }) {
-  const config = severityConfig[severity];
+export function SeverityBadge({ severity }: { severity: Severity | string | undefined }) {
+  const config = severityConfig[severity as Severity] || severityConfig.info;
   return (
     <Badge variant="outline" className={`${config.className} text-xs font-medium border capitalize`} data-testid={`badge-severity-${severity}`}>
-      {severity}
+      {severity || "unknown"}
     </Badge>
   );
 }
