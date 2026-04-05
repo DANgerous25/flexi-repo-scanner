@@ -1,3 +1,5 @@
+print("EXECUTOR.PY VERSION 2026-04-05T13:15:01")
+
 """Task executor — runs scan tasks and processes results."""
 
 from __future__ import annotations
