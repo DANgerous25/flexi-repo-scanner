@@ -22,7 +22,7 @@ _ENV_RE = re.compile(r"\$\{([^}]+)\}")
 def _interpolate(value: Any) -> Any:
     """Replace ${ENV_VAR} references — checks encrypted vault first, then env."""
     if isinstance(value, str):
-        def _replace(m: re.Match) -> str:
+        def _replace(m: re.Match) -> Any:
             var_name = m.group(1)
             # Try the vault first
             try:
