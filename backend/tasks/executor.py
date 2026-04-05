@@ -9,38 +9,50 @@ import re
 from typing import Any, Optional
 
 import tree_sitter
-from tree_sitter_languages import get_language
 
-from backend.config import AppSettings, TaskConfig, AstRule, AstNodePattern
-from backend.scanner.github import GitHubClient, GitHubFile, filter_files
-from backend.scanner.pattern import Finding, scan_file_content
-from backend.scanner.llm_review import review_files
-from backend.scanner.doc_coverage import scan_doc_coverage
-from backend.storage import config_loader, db
-from backend.actions import email_report, github_issue, generate_prompt, in_app_notify
+# Dynamically load language bindings
+# This is a fallback if tree_sitter_languages causes issues.
+LANGUAGE_LIBRARIES = {}
+LANGUAGE_NAMES = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+}
 
-logger = logging.getLogger(__name__)
+def _load_language_from_module(module_name: str, language_name: str):
+    """Attempts to load a language from an installed tree-sitter module."""
+    try:
+        module = __import__(module_name)
+        if hasattr(module, "language") and callable(module.language):
+            return module.language()
+        elif hasattr(module, "LANGUAGE"):
+            return module.LANGUAGE
+    except Exception as e:
+        logger.warning(f"Could not load {language_name} from {module_name}: {e}")
+    return None
 
-_running_runs: dict[str, asyncio.Task] = {}
-_parsers: dict[str, tree_sitter.Parser] = {}
 
 def _get_parser_for_file(file_path: str) -> Optional[tree_sitter.Parser]:
     """Get a pre-initialized tree-sitter parser for a given file extension."""
-    lang_map = {
-        ".py": "python",
-        ".js": "javascript",
-        ".ts": "typescript",
-    }
     ext = os.path.splitext(file_path)[1]
-    language_name = lang_map.get(ext)
+    language_name = LANGUAGE_NAMES.get(ext)
     if not language_name:
         return None
 
     if language_name not in _parsers:
         try:
-            language = get_language(language_name)
+            # Try loading from tree-sitter-<language> package directly
+            language = _load_language_from_module(f"tree_sitter_{language_name}", language_name)
+            if not language:
+                logger.error(f"Failed to load tree-sitter parser for {language_name}: No language object found.")
+                return None
+
             parser = tree_sitter.Parser()
-            parser.set_language(language)
+            try:
+                parser.set_language(language)
+            except AttributeError:
+                # Fallback for older tree-sitter versions if set_language is not present
+                parser.language = language
             _parsers[language_name] = parser
         except Exception as e:
             logger.error(f"Failed to load tree-sitter parser for {language_name}: {e}")
