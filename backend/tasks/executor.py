@@ -203,7 +203,7 @@ def _count_parameters(params_node: dict[str, Any]) -> int:
     return count
 
 
-def _match_constraints(node: dict[str, Any], constraints: dict[str, Any]) -> bool:
+def _match_constraints(node: dict[str, Any], constraints: dict[str, Any], text: Optional[str] = None) -> bool:
     for name, value in constraints.items():
         if name == "args_count":
             if not isinstance(value, dict):
@@ -217,12 +217,14 @@ def _match_constraints(node: dict[str, Any], constraints: dict[str, Any]) -> boo
             if not (min_args <= arg_count <= max_args):
                 return False
         elif name == "min_length":
-            if len(_node_text(node)) < int(value):
+            candidate = text if text is not None else _node_text(node)
+            if len(candidate) < int(value):
                 return False
         elif name == "exclude_regex":
+            candidate = text if text is not None else _node_text(node)
             patterns = value if isinstance(value, list) else [value]
             for pattern in patterns:
-                if pattern and re.search(pattern, _node_text(node)):
+                if pattern and re.search(pattern, candidate):
                     return False
     return True
 
@@ -269,7 +271,7 @@ def _match_ast_node(node: dict[str, Any], pattern: AstNodePattern) -> bool:
     if pattern.value_regex and not re.search(pattern.value_regex, target_text):
         return False
 
-    if pattern.constraints and not _match_constraints(node, pattern.constraints):
+    if pattern.constraints and not _match_constraints(node, pattern.constraints, target_text):
         return False
 
     if pattern.children and not _match_children(node, pattern.children):
