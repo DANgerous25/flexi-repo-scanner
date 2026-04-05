@@ -52,6 +52,93 @@ async def add_ast_security_scanner_task():
                     )
                 ),
                 AstRule(
+                    id="exec-function-call",
+                    name="Exec Function Call",
+                    description="Detects calls to exec()",
+                    severity="critical",
+                    language="python",
+                    pattern=AstNodePattern(
+                        node_type="call",
+                        properties={"function_name": "exec"}
+                    )
+                ),
+                AstRule(
+                    id="yaml-unsafe-load",
+                    name="Unsafe YAML Load",
+                    description="Detects yaml.load without a safe loader",
+                    severity="high",
+                    language="python",
+                    pattern=AstNodePattern(
+                        node_type="call",
+                        properties={"function_name": "yaml.load"}
+                    )
+                ),
+                AstRule(
+                    id="pickle-loads",
+                    name="Pickle Deserialization",
+                    description="Detects pickle.loads usage",
+                    severity="high",
+                    language="python",
+                    pattern=AstNodePattern(
+                        node_type="call",
+                        properties={"function_name": "pickle.loads"}
+                    )
+                ),
+                AstRule(
+                    id="shell-true-call",
+                    name="Subprocess Shell True",
+                    description="Detects subprocess.* with shell=True",
+                    severity="high",
+                    language="python",
+                    pattern=AstNodePattern(
+                        node_type="call",
+                        properties={"function_name": "subprocess"},
+                        children=[
+                            AstNodePattern(
+                                node_type="keyword_argument",
+                                properties={"name": "shell"},
+                                value_regex="(?i)true",
+                            )
+                        ]
+                    )
+                ),
+                AstRule(
+                    id="weak-hash-md5",
+                    name="Weak Hash (MD5)",
+                    description="Detects hashlib.md5 usage",
+                    severity="medium",
+                    language="python",
+                    pattern=AstNodePattern(
+                        node_type="call",
+                        properties={"function_name": "hashlib.md5"}
+                    )
+                ),
+                AstRule(
+                    id="weak-hash-sha1",
+                    name="Weak Hash (SHA1)",
+                    description="Detects hashlib.sha1 usage",
+                    severity="medium",
+                    language="python",
+                    pattern=AstNodePattern(
+                        node_type="call",
+                        properties={"function_name": "hashlib.sha1"}
+                    )
+                ),
+                AstRule(
+                    id="path-traversal-open",
+                    name="Path Traversal (open)",
+                    description="Detects open() calls on variable paths",
+                    severity="high",
+                    language="python",
+                    pattern=AstNodePattern(
+                        node_type="call",
+                        properties={"function_name": "open"},
+                        children=[
+                            AstNodePattern(node_type="identifier")
+                        ]
+                    )
+                ),
+                AstRule(
                     id="sql-injection-ast",
                     name="Potential SQL Injection (AST)",
                     description="Detects string operations that might lead to SQL injection",
@@ -71,12 +158,12 @@ async def add_ast_security_scanner_task():
                 AstRule(
                     id="too-many-params",
                     name="Function with Too Many Parameters",
-                    description="Detects functions with more than 7 parameters",
+                    description="Detects functions with more than 14 parameters",
                     severity="medium",
                     language="python",
                     pattern=AstNodePattern(
                         node_type="function_definition",
-                        constraints={"args_count": {"min": 8}}
+                        constraints={"args_count": {"min": 15}}
                     )
                 )
             ]
