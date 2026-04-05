@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useRoute, Link, useParams } from "wouter";
+import { useRoute, useLocation, useParams } from "wouter";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -159,6 +159,7 @@ function formatFindingsForLLM(task: Task, run: TaskRun, findings: Finding[]): st
 export default function TaskResults() {
   const params = useParams();
   const taskId = params?.id ?? null;
+  const [, setLocation] = useLocation();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<"none" | "category" | "severity">("none");
   const [copied, setCopied] = useState(false);
@@ -251,9 +252,13 @@ export default function TaskResults() {
       <div className="flex flex-col items-center justify-center py-20">
         <AlertTriangle className="w-8 h-8 text-muted-foreground mb-3" />
         <p className="text-sm text-muted-foreground">Task not found</p>
-        <Link href="/tasks">
-          <Button variant="ghost" className="mt-2 text-xs">Back to Tasks</Button>
-        </Link>
+        <Button
+          variant="ghost"
+          className="mt-2 text-xs"
+          onClick={() => setLocation("/tasks")}
+        >
+          Back to Tasks
+        </Button>
       </div>
     );
   }
@@ -263,11 +268,15 @@ export default function TaskResults() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link href="/tasks">
-            <Button variant="ghost" size="icon" className="h-8 w-8" data-testid="button-back">
-              <ArrowLeft className="w-4 h-4" />
-            </Button>
-          </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            data-testid="button-back"
+            onClick={() => setLocation("/tasks")}
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-semibold text-foreground">{task.name}</h2>
