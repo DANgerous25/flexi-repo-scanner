@@ -31,16 +31,16 @@ def _get_parser_for_file(file_path: str) -> Optional[tree_sitter.Parser]:
     ext = os.path.splitext(file_path)[1]
     if ext not in _parsers:
         lang_map = {
-            ".py": tree_sitter_python,
-            ".js": tree_sitter_javascript,
-            ".ts": tree_sitter_typescript,
+            ".py": tree_sitter_python.LANGUAGE,
+            ".js": tree_sitter_javascript.LANGUAGE,
+            ".ts": tree_sitter_typescript.LANGUAGE,
         }
-        language_module = lang_map.get(ext)
-        if not language_module:
+        language_obj = lang_map.get(ext)
+        if not language_obj:
             return None
         try:
             parser = tree_sitter.Parser()
-            parser.language = language_module.language()
+            parser.language = language_obj
             _parsers[ext] = parser
         except Exception as e:
             logger.error(f"Failed to load tree-sitter parser for extension {ext}: {e}")
