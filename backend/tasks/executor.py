@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import subprocess
+import tree_sitter_languages
 from typing import Any, Optional
 
 # Removed tree_sitter imports to bypass Python binding issues
@@ -77,8 +78,9 @@ def _get_parser_for_file(file_path: str) -> Optional[DummyParser]:
             f.write("// dummy content")
         
         # Use --quiet to suppress stdout/stderr unless there's an error
+        lib_path = os.path.join(os.path.dirname(tree_sitter_languages.__file__), "languages.so")
         result = subprocess.run(
-            ["tree-sitter", "parse", "--lang-name", language_name, dummy_file_path, "--quiet"],
+            ["tree-sitter", "parse", "--lang-name", language_name, "--lib-path", lib_path, dummy_file_path, "--quiet"],
             capture_output=True,
             text=True,
             check=True, # Raise CalledProcessError for non-zero exit codes
