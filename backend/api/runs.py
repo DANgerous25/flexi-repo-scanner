@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from backend.storage import db
-from backend.tasks.executor import _running_runs
+# from backend.tasks.executor import _running_runs # Moved to inside functions
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ async def cancel_run(run_id: str):
     await db.upsert_task_state(run["task_id"], status="failed")
 
     # Cancel the asyncio task if it's still running
+    from backend.tasks.executor import _running_runs
     atask = _running_runs.get(run_id)
     if atask and not atask.done():
         atask.cancel()
@@ -56,6 +57,7 @@ async def stop_run(run_id: str):
     await db.upsert_task_state(run["task_id"], status="failed")
 
     # Cancel the asyncio task if it's still running
+    from backend.tasks.executor import _running_runs
     atask = _running_runs.get(run_id)
     if atask and not atask.done():
         atask.cancel()
