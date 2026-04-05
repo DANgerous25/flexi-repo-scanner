@@ -252,7 +252,7 @@ export default function TaskResults() {
         <AlertTriangle className="w-8 h-8 text-muted-foreground mb-3" />
         <p className="text-sm text-muted-foreground">Task not found</p>
         <Link href="/tasks">
-          <Button variant="link" className="mt-2 text-xs">Back to Tasks</Button>
+          <Button variant="ghost" className="mt-2 text-xs">Back to Tasks</Button>
         </Link>
       </div>
     );
@@ -541,7 +541,7 @@ export default function TaskResults() {
                             finding={finding}
                             taskId={taskId!}
                             onAllowlisted={() => {
-                              setAllowlistedIds((prev) => new Set([...prev, finding.id]));
+                              setAllowlistedIds((prev) => new Set([...Array.from(prev), finding.id]));
                               queryClient.invalidateQueries({ queryKey: [`/api/tasks/${taskId}`] });
                             }}
                           />
