@@ -1,7 +1,7 @@
 // ── Task States ──────────────────────────────────────────
 export type TaskState = "inactive" | "scheduled" | "running" | "completed" | "failed" | "partial";
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
-export type ScanType = "pattern" | "llm-review" | "doc-coverage";
+export type ScanType = "pattern" | "llm-review" | "doc-coverage" | "ast-pattern";
 export type ScanMode = "full" | "diff";
 export type ActionTrigger = "always" | "findings" | "fixed";
 
@@ -13,6 +13,25 @@ export interface PatternRule {
   severity: Severity;
   case_sensitive?: boolean;
   context_requires?: string;
+}
+
+export interface AstNodePattern {
+  node_type: string;
+  properties?: Record<string, any>;
+  children?: AstNodePattern[];
+  value_regex?: string;
+  constraints?: Record<string, any>;
+  left?: AstNodePattern;
+  operator?: string;
+}
+
+export interface AstRule {
+  id: string;
+  name: string;
+  description?: string;
+  severity: Severity;
+  language: string;
+  pattern: AstNodePattern;
 }
 
 export interface AllowlistEntry {
@@ -53,6 +72,7 @@ export interface Task {
       exclude: string[];
     };
     rules?: PatternRule[];
+    ast_rules?: AstRule[];
     llm?: {
       model: string;
       preferred_models?: string[];
@@ -93,7 +113,7 @@ export interface TaskRun {
   status: "running" | "completed" | "failed" | "cancelled" | "partial";
   findings_count: number;
   scan_mode: ScanMode;
-  scan_type: ScanType;
+  scan_type: ScanType | "ast-pattern";
   error?: string;
 }
 
