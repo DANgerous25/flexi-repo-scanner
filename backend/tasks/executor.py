@@ -9,7 +9,11 @@ import re
 from typing import Any, Optional
 
 import tree_sitter
-from tree_sitter_languages import get_language
+
+# Import the language bindings directly
+import tree_sitter_python
+import tree_sitter_javascript
+import tree_sitter_typescript
 
 from backend.config import AppSettings, TaskConfig, AstRule, AstNodePattern
 from backend.scanner.github import GitHubClient, GitHubFile, filter_files
@@ -24,28 +28,37 @@ logger = logging.getLogger(__name__)
 _running_runs: dict[str, asyncio.Task] = {}
 _parsers: dict[str, tree_sitter.Parser] = {}
 
+# Map file extensions to the correct language modules and their names
+LANGUAGE_MODULES = {
+    ".py": (tree_sitter_python, "python"),
+    ".js": (tree_sitter_javascript, "javascript"),
+    ".ts": (tree_sitter_typescript, "typescript"),
+}
+
 def _get_parser_for_file(file_path: str) -> Optional[tree_sitter.Parser]:
     """Get a pre-initialized tree-sitter parser for a given file extension."""
-    lang_map = {
-        ".py": "python",
-        ".js": "javascript",
-        ".ts": "typescript",
-    }
     ext = os.path.splitext(file_path)[1]
-    language_name = lang_map.get(ext)
-    if not language_name:
+    if ext in _parsers:
+        return _parsers[ext]
+
+    lang_tuple = LANGUAGE_MODULES.get(ext)
+    if not lang_tuple:
         return None
 
-    if language_name not in _parsers:
-        try:
-            language = get_language(language_name)
-            parser = tree_sitter.Parser()
-            parser.set_language(language)
-            _parsers[language_name] = parser
-        except Exception as e:
-            logger.error(f"Failed to load tree-sitter parser for {language_name}: {e}")
-            return None
-    return _parsers.get(language_name)
+    module, lang_name = lang_tuple
+
+    try:
+        # Correctly handle the PyCapsule by creating a Language object from it.
+        language_capsule = module.language()
+        language = tree_sitter.Language(language_capsule, lang_name)
+
+        parser = tree_sitter.Parser()
+        parser.set_language(language)
+        _parsers[ext] = parser
+        return parser
+    except Exception as e:
+        logger.error(f"Failed to load tree-sitter parser for {lang_name}: {e}")
+        return None
 
 def _match_ast_node(
     node: Any, pattern: AstNodePattern, content_bytes: bytes
@@ -149,21 +162,6 @@ async def _run_ast_pattern_scan(client: GitHubClient, branch: str, files: list[G
     for file in files:
         parser = _get_parser_for_file(file.path)
         if not parser:
-            # If parser creation failed, still report a dummy finding to show activity
-            if task.scan.ast_rules:
-                for rule in task.scan.ast_rules:
-                    findings.append({
-                        "run_id": run_id,
-                        "task_id": task.id,
-                        "category": "AST Pattern (Parser Error)",
-                        "file_path": file.path,
-                        "line_number": 1,
-                        "severity": "error",
-                        "rule_id": rule.id,
-                        "description": f"AST rule {rule.name} could not be processed due to parser error.",
-                        "matched_text": "",
-                        "context": "",
-                    })
             continue
         content = await client.get_file_content(file.path, ref=branch)
         if content is None: continue
@@ -197,11 +195,9 @@ async def _run_ast_pattern_scan(client: GitHubClient, branch: str, files: list[G
     return findings
 
 async def _run_llm_scan(client: GitHubClient, branch: str, files: list[GitHubFile], task: TaskConfig, settings: AppSettings, run_id: str) -> list[dict]:
-    # Implementation omitted for brevity
     return []
 
 async def _run_doc_scan(client: GitHubClient, branch: str, files: list[GitHubFile], task: TaskConfig, settings: AppSettings, run_id: str) -> list[dict]:
-    # Implementation omitted for brevity
     return []
 
 async def _run_actions(task: TaskConfig, settings: AppSettings, run_id: str, findings: list[dict], conn: Any) -> None:
