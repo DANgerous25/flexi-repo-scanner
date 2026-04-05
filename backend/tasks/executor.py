@@ -40,11 +40,7 @@ def _get_parser_for_file(file_path: str) -> Optional[tree_sitter.Parser]:
         try:
             language = get_language(language_name)
             parser = tree_sitter.Parser()
-            try:
-                parser.set_language(language)
-            except AttributeError:
-                # Fallback for older tree-sitter versions
-                parser.language = language
+            parser.set_language(language)
             _parsers[language_name] = parser
         except Exception as e:
             logger.error(f"Failed to load tree-sitter parser for {language_name}: {e}")
