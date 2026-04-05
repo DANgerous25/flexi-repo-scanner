@@ -9,9 +9,9 @@ import re
 from typing import Any, Optional
 
 import tree_sitter
-from tree_sitter_python import language as python_language
-from tree_sitter_javascript import language as javascript_language
-from tree_sitter_typescript import language as typescript_language
+from tree_sitter_python.python import language as python_language
+from tree_sitter_javascript.javascript import language as javascript_language
+from tree_sitter_typescript.typescript import language as typescript_language
 
 from backend.config import AppSettings, TaskConfig, AstRule, AstNodePattern
 from backend.scanner.github import GitHubClient, GitHubFile, filter_files
