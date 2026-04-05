@@ -9,9 +9,9 @@ import re
 from typing import Any, Optional
 
 import tree_sitter
-from tree_sitter_python import language as python_language
-from tree_sitter_javascript import language as javascript_language
-from tree_sitter_typescript import language as typescript_language
+import tree_sitter_python
+import tree_sitter_javascript
+import tree_sitter_typescript
 
 from backend.config import AppSettings, TaskConfig, AstRule, AstNodePattern
 from backend.scanner.github import GitHubClient, GitHubFile, filter_files
@@ -31,16 +31,16 @@ def _get_parser_for_file(file_path: str) -> Optional[tree_sitter.Parser]:
     ext = os.path.splitext(file_path)[1]
     if ext not in _parsers:
         lang_map = {
-            ".py": python_language,
-            ".js": javascript_language,
-            ".ts": typescript_language,
+            ".py": tree_sitter_python,
+            ".js": tree_sitter_javascript,
+            ".ts": tree_sitter_typescript,
         }
-        language_func = lang_map.get(ext)
-        if not language_func:
+        language_module = lang_map.get(ext)
+        if not language_module:
             return None
         try:
             parser = tree_sitter.Parser()
-            parser.set_language(language_func())
+            parser.set_language(language_module.language())
             _parsers[ext] = parser
         except Exception as e:
             logger.error(f"Failed to load tree-sitter parser for extension {ext}: {e}")
