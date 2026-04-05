@@ -40,7 +40,7 @@ def _get_parser_for_file(file_path: str) -> Optional[tree_sitter.Parser]:
             return None
         try:
             parser = tree_sitter.Parser()
-            parser.set_language(language_module.language())
+            parser.language = language_module.language()
             _parsers[ext] = parser
         except Exception as e:
             logger.error(f"Failed to load tree-sitter parser for extension {ext}: {e}")
