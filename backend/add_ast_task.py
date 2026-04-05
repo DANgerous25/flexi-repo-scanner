@@ -71,12 +71,12 @@ async def add_ast_security_scanner_task():
                 AstRule(
                     id="too-many-params",
                     name="Function with Too Many Parameters",
-                    description="Detects functions with more than 5 parameters",
+                    description="Detects functions with more than 7 parameters",
                     severity="medium",
                     language="python",
                     pattern=AstNodePattern(
                         node_type="function_definition",
-                        constraints={"args_count": {"min": 6}}
+                        constraints={"args_count": {"min": 8}}
                     )
                 )
             ]
