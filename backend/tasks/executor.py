@@ -185,10 +185,20 @@ def _match_children(node: dict[str, Any], patterns: list[AstNodePattern]) -> boo
 
 
 def _count_parameters(params_node: dict[str, Any]) -> int:
+    """Count parameters using only direct children of the parameters node."""
     count = 0
-    for child in _descendants(params_node):
-        t = child.get("type", "")
-        if t.endswith("parameter") or t in ("identifier", "typed_parameter", "default_parameter"):
+    direct_children = params_node.get("children", [])
+    param_types = {
+        "identifier",
+        "default_parameter",
+        "typed_parameter",
+        "list_splat_pattern",
+        "dictionary_splat_pattern",
+        "keyword_separator",
+        "positional_separator",
+    }
+    for child in direct_children:
+        if child.get("type") in param_types or child.get("type", "").endswith("parameter"):
             count += 1
     return count
 
@@ -209,6 +219,11 @@ def _match_constraints(node: dict[str, Any], constraints: dict[str, Any]) -> boo
         elif name == "min_length":
             if len(_node_text(node)) < int(value):
                 return False
+        elif name == "exclude_regex":
+            patterns = value if isinstance(value, list) else [value]
+            for pattern in patterns:
+                if pattern and re.search(pattern, _node_text(node)):
+                    return False
     return True
 
 
