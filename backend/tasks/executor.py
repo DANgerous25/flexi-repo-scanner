@@ -7,8 +7,8 @@ import logging
 import re
 from typing import Any, Optional
 
-# import tree_sitter
-# from tree_sitter_languages import get_language
+import tree_sitter
+from tree_sitter_languages import get_language
 
 from backend.config import AppSettings, TaskConfig, AstRule, AstNodePattern
 from backend.scanner.github import GitHubClient, GitHubFile, filter_files
@@ -24,33 +24,35 @@ logger = logging.getLogger(__name__)
 _running_runs: dict[str, asyncio.Task] = {}
 
 # Tree-sitter parsers cache
-# _parsers: dict[str, tree_sitter.Parser] = {}
+_parsers: dict[str, tree_sitter.Parser] = {}
 
-# def _get_parser_for_file(file_path: str) -> Optional[tree_sitter.Parser]:
-#     lang_map = {
-#         ".py": "python",
-#         ".js": "javascript",
-#         ".ts": "typescript",
-#     }
-#     ext = os.path.splitext(file_path)[1]
-#     language_name = lang_map.get(ext)
-#     if not language_name:
-#         return None
+def _get_parser_for_file(file_path: str) -> Optional[tree_sitter.Parser]:
+    lang_map = {
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+    }
+    ext = os.path.splitext(file_path)[1]
+    language_name = lang_map.get(ext)
+    if not language_name:
+        return None
 
-#     if language_name not in _parsers:
-#         try:
-#             language = get_language(language_name)
-#             parser = tree_sitter.Parser()
-#             parser.set_language(language)
-#             _parsers[language_name] = parser
-#         except Exception as e:
-#             logger.error(f"Failed to load tree-sitter parser for {language_name}: {e}")
-#             return None
-#     return _parsers[language_name]
+    if language_name not in _parsers:
+        try:
+            language = get_language(language_name)
+            parser = tree_sitter.Parser()
+            parser.set_language(language)
+            _parsers[language_name] = parser
+        except Exception as e:
+            logger.error(f"Failed to load tree-sitter parser for {language_name}: {e}")
+            return None
+    return _parsers[language_name]
 
-# def _match_ast_node(node: Any, pattern: AstNodePattern, content_bytes: bytes) -> bool:
-#     # Placeholder - requires actual tree-sitter logic
-#     return False
+def _match_ast_node(
+    node: Any, pattern: AstNodePattern, content_bytes: bytes
+) -> bool:
+    # Placeholder - requires actual tree-sitter logic
+    return False
 
 
 class TaskCancelled(Exception):
@@ -122,8 +124,8 @@ async def run_task(task: TaskConfig, settings: AppSettings) -> str:
 
         if task.scan.type == "pattern":
             all_findings = await _run_pattern_scan(client, branch, files, task, run_id)
-        # elif task.scan.type == "ast-pattern":
-        #     all_findings = await _run_ast_pattern_scan(client, branch, files, task, run_id)
+        elif task.scan.type == "ast-pattern":
+            all_findings = await _run_ast_pattern_scan(client, branch, files, task, run_id)
         elif task.scan.type == "llm-review":
             all_findings = await _run_llm_scan(client, branch, files, task, settings, run_id)
         elif task.scan.type == "doc-coverage":
@@ -211,48 +213,48 @@ async def _run_pattern_scan(
     return findings
 
 
-# async def _run_ast_pattern_scan(
-#     client: GitHubClient,
-#     branch: str,
-#     files: list[GitHubFile],
-#     task: TaskConfig,
-#     run_id: str,
-# ) -> list[dict]:
-#     """Run AST pattern scan across files."""
-#     findings = []
-#     scanned = 0
-#     for file in files:
-#         parser = _get_parser_for_file(file.path)
-#         if not parser:
-#             continue
-#         content = await client.get_file_content(file.path, ref=branch)
-#         if content is None:
-#             continue
-#         scanned += 1
-#         tree = parser.parse(content.encode("utf8"))
-#         queue = [tree.root_node]
-#         while queue:
-#             node = queue.pop(0)
-#             for rule in task.scan.ast_rules:
-#                 if _match_ast_node(node, rule.pattern, content.encode("utf8")):
-#                     findings.append({
-#                         "run_id": run_id,
-#                         "task_id": task.id,
-#                         "category": "AST Pattern",
-#                         "file_path": file.path,
-#                         "line_number": node.start_point[0] + 1,
-#                         "severity": rule.severity,
-#                         "rule_id": rule.id,
-#                         "description": rule.description or rule.name,
-#                         "matched_text": node.text.decode("utf8"),
-#                         "context": node.parent.text.decode("utf8") if node.parent else node.text.decode("utf8"),
-#                     })
-#             queue.extend(node.children)
-#         if scanned % 20 == 0:
-#             await db.update_run(run_id, scanned_files=scanned)
-#             if await _check_cancelled(run_id):
-#                 raise TaskCancelled(f"Run {run_id} cancelled during AST scan")
-#     return findings
+async def _run_ast_pattern_scan(
+    client: GitHubClient,
+    branch: str,
+    files: list[GitHubFile],
+    task: TaskConfig,
+    run_id: str,
+) -> list[dict]:
+    """Run AST pattern scan across files."""
+    findings = []
+    scanned = 0
+    for file in files:
+        parser = _get_parser_for_file(file.path)
+        if not parser:
+            continue
+        content = await client.get_file_content(file.path, ref=branch)
+        if content is None:
+            continue
+        scanned += 1
+        tree = parser.parse(content.encode("utf8"))
+        queue = [tree.root_node]
+        while queue:
+            node = queue.pop(0)
+            for rule in task.scan.ast_rules:
+                if _match_ast_node(node, rule.pattern, content.encode("utf8")):
+                    findings.append({
+                        "run_id": run_id,
+                        "task_id": task.id,
+                        "category": "AST Pattern",
+                        "file_path": file.path,
+                        "line_number": node.start_point[0] + 1,
+                        "severity": rule.severity,
+                        "rule_id": rule.id,
+                        "description": rule.description or rule.name,
+                        "matched_text": node.text.decode("utf8"),
+                        "context": node.parent.text.decode("utf8") if node.parent else node.text.decode("utf8"),
+                    })
+            queue.extend(node.children)
+        if scanned % 20 == 0:
+            await db.update_run(run_id, scanned_files=scanned)
+            if await _check_cancelled(run_id):
+                raise TaskCancelled(f"Run {run_id} cancelled during AST scan")
+    return findings
 
 
 async def _run_llm_scan(
