@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRoute, useLocation, useParams } from "wouter";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -174,6 +174,7 @@ export default function TaskResults() {
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [currentAnalysisData, setCurrentAnalysisData] = useState<any>(null);
   const [currentFinding, setCurrentFinding] = useState<Finding | null>(null);
+  const findingsSectionRef = useRef<HTMLDivElement | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -208,6 +209,12 @@ export default function TaskResults() {
     queryFn: () => fetchRunFindings(selectedRun!.id),
     enabled: !!selectedRun?.id,
   });
+
+  useEffect(() => {
+    if (selectedRun?.id) {
+      findingsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [selectedRun?.id]);
 
   const groupedFindings = (() => {
     if (groupBy === "none") return { "All Findings": findings };
@@ -445,7 +452,7 @@ export default function TaskResults() {
 
       {/* Findings Detail */}
       {selectedRun && (
-        <Card className="bg-card border-card-border">
+        <Card ref={findingsSectionRef} className="bg-card border-card-border">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
