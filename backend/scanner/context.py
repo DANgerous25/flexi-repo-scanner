@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Optional
 
@@ -122,7 +123,6 @@ PROVIDER_SKIP_FILES = {
 
 def should_skip_file(filepath: str) -> bool:
     """Check if a file should be skipped based on extension or path."""
-    import os
     _, ext = os.path.splitext(filepath)
     if ext.lower() in SKIP_EXTENSIONS:
         return True
@@ -134,5 +134,4 @@ def should_skip_file(filepath: str) -> bool:
 
 def is_provider_skip_file(filepath: str) -> bool:
     """Check if file is a dependency/lock file where provider names are expected."""
-    import os
     return os.path.basename(filepath) in PROVIDER_SKIP_FILES

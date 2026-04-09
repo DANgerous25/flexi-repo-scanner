@@ -19,12 +19,11 @@ async def create(
     conn: GitHubConnection,
     action: TaskAction,
 ) -> bool:
-    """Create a GitHub Issue summarising scan findings."""
+    """Create a GitHub Issue summarising scan findings. Skips if a similar issue already exists."""
     if not findings or not conn.token:
         return False
 
     title = f"[{task.name}] {len(findings)} finding(s) — {datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
-    body = _format_issue_body(task, run_id, findings)
 
     headers = {
         "Accept": "application/vnd.github+json",
@@ -32,16 +31,37 @@ async def create(
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
-    payload: dict = {
-        "title": title,
-        "body": body,
-    }
-    if action.labels:
-        payload["labels"] = action.labels
-    if action.assign:
-        payload["assignees"] = [action.assign]
-
     async with httpx.AsyncClient() as client:
+        # Check for existing open issues with the same title prefix to avoid duplicates
+        try:
+            search_resp = await client.get(
+                f"https://api.github.com/search/issues",
+                params={
+                    "q": f"repo:{conn.owner}/{conn.repo} is:issue is:open in:title \"[{task.name}]\"",
+                },
+                headers=headers,
+                timeout=10.0,
+            )
+            if search_resp.status_code == 200:
+                existing = search_resp.json().get("items", [])
+                for issue in existing:
+                    if issue.get("title", "").startswith(f"[{task.name}]"):
+                        logger.info("Skipping duplicate issue for task %s — existing issue #%s", task.id, issue.get("number"))
+                        return False
+        except Exception as e:
+            logger.warning("Could not check for duplicate issues: %s", e)
+
+        body = _format_issue_body(task, run_id, findings)
+
+        payload: dict = {
+            "title": title,
+            "body": body,
+        }
+        if action.labels:
+            payload["labels"] = action.labels
+        if action.assign:
+            payload["assignees"] = [action.assign]
+
         try:
             resp = await client.post(
                 f"https://api.github.com/repos/{conn.owner}/{conn.repo}/issues",
@@ -51,10 +71,10 @@ async def create(
             )
             resp.raise_for_status()
             issue = resp.json()
-            logger.info(f"Created issue #{issue.get('number')} for task {task.id}")
+            logger.info("Created issue #%s for task %s", issue.get("number"), task.id)
             return True
         except Exception as e:
-            logger.error(f"Failed to create GitHub issue: {e}")
+            logger.error("Failed to create GitHub issue: %s", e)
             return False
 
 

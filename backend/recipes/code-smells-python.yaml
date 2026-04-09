@@ -1,0 +1,44 @@
+code-smells-python:
+  name: "Code Smells (Python)"
+  description: "Detect common Python anti-patterns like bare except, mutable default arguments, and overly broad imports"
+  category: "quality"
+  rules:
+    - id: "bare-except"
+      name: "Bare except Clause"
+      pattern: 'except\s*:'
+      severity: "high"
+    - id: "mutable-default-arg"
+      name: "Mutable Default Argument"
+      pattern: 'def\s+\w+\s*\([^)]*(?:=\s*(?:\[\]|\{\}|\blist\(\)|\bdict\(\)|\bset\(\)))'
+      severity: "high"
+    - id: "broad-exception"
+      name: "Catching Exception Base Class"
+      pattern: 'except\s+Exception\s*:'
+      severity: "medium"
+    - id: "star-import"
+      name: "Wildcard Import"
+      pattern: 'from\s+\w+\s+import\s+\*'
+      severity: "medium"
+    - id: "todo-fixme"
+      name: "TODO/FIXME Comment"
+      pattern: '#\s*(?:TODO|FIXME|HACK|XXX)\b'
+      severity: "low"
+      case_sensitive: false
+    - id: "print-statement"
+      name: "Print Statement (should use logging)"
+      pattern: '\bprint\s*\('
+      severity: "low"
+    - id: "debugger-statement"
+      name: "Debugger Statement"
+      pattern: '\bbreakpoint\s*\(|\bpdb\.(?:set_trace|breakpoint)\s*\(|import\s+pdb\b'
+      severity: "high"
+    - id: "pass-in-exception"
+      name: "Silent Exception (pass in except)"
+      pattern: 'except\s+\w+\s*:\s*\n\s*pass'
+      severity: "medium"
+  default_allowlist:
+    - file: "tests/**"
+      reason: "Test files often use patterns that would be issues in production"
+    - file: "**/conftest.py"
+      reason: "Pytest configuration may use star imports intentionally"
+  context_filters: []

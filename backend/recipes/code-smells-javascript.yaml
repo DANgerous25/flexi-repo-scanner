@@ -1,0 +1,48 @@
+code-smells-javascript:
+  name: "Code Smells (JavaScript/TypeScript)"
+  description: "Detect common JS/TS anti-patterns like console.log left in code, any types, and unsafe equality checks"
+  category: "quality"
+  rules:
+    - id: "console-log"
+      name: "console.log Statement"
+      pattern: '\bconsole\.log\s*\('
+      severity: "low"
+    - id: "console-error-left"
+      name: "console.error Statement"
+      pattern: '\bconsole\.error\s*\('
+      severity: "info"
+    - id: "debugger-statement-js"
+      name: "debugger Statement"
+      pattern: '\bdebugger\s*;'
+      severity: "high"
+    - id: "ts-any-type"
+      name: "TypeScript 'any' Type"
+      pattern: ':\s*any\b'
+      severity: "medium"
+    - id: "ts-as-any"
+      name: "TypeScript 'as any' Cast"
+      pattern: '\bas\s+any\b'
+      severity: "medium"
+    - id: "unsafe-equality"
+      name: "Loose Equality (== instead of ===)"
+      pattern: '[^=!]==[^=]'
+      severity: "low"
+    - id: "var-declaration"
+      name: "var Declaration (use let/const)"
+      pattern: '\bvar\s+\w+'
+      severity: "low"
+    - id: "todo-fixme-js"
+      name: "TODO/FIXME Comment"
+      pattern: '//\s*(?:TODO|FIXME|HACK|XXX)\b'
+      severity: "low"
+      case_sensitive: false
+  default_allowlist:
+    - file: "tests/**"
+      reason: "Test files often use patterns acceptable in testing"
+    - file: "**/*.test.*"
+      reason: "Test files"
+    - file: "**/*.spec.*"
+      reason: "Spec files"
+    - file: "**/mock*"
+      reason: "Mock data files"
+  context_filters: []

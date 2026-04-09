@@ -13,7 +13,11 @@ DOCSTRING_PATTERNS: dict[str, list[tuple[str, str]]] = {
     # Python: public functions/classes without docstrings
     ".py": [
         (
-            r"^(class|def)\s+([A-Z_][a-zA-Z0-9_]*)\s*[\(:]",
+            r"^(class)\s+([A-Z_][a-zA-Z0-9_]*)\s*[\(:]",
+            "Missing docstring for public {kind} '{name}'",
+        ),
+        (
+            r"^(def)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[\(:]",
             "Missing docstring for public {kind} '{name}'",
         ),
     ],

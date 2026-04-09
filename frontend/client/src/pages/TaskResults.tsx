@@ -163,7 +163,7 @@ export default function TaskResults() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<"none" | "category" | "severity">("none");
   const [copied, setCopied] = useState(false);
-  const [allowlistedIds, setAllowlistedIds] = useState<Set<string>>(new Set());
+  const [allowlistedIds, setAllowlistedIds] = useState<Set<number>>(new Set());
   const [codeViewerOpen, setCodeViewerOpen] = useState(false);
   const [codeViewerFile, setCodeViewerFile] = useState("");
   const [codeViewerLine, setCodeViewerLine] = useState<number | undefined>();

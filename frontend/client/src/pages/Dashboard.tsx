@@ -77,7 +77,7 @@ export default function Dashboard() {
   const handleDismissAll = async () => {
     setIsDismissingAll(true);
     try {
-      await Promise.all(data.failed_tasks.map(taskId => dismissFailedTaskAlert(taskId)));
+      await Promise.all((data?.failed_tasks ?? []).map(taskId => dismissFailedTaskAlert(taskId)));
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
     } catch (err: any) {
       toast({ title: "Failed to dismiss alerts", description: err.message, variant: "destructive" });
@@ -266,8 +266,8 @@ export default function Dashboard() {
                         )}
                       </div>
                     </div>
-                    {(run.error || run.error_message) && (
-                      <p className="text-[11px] text-red-400 mt-1 truncate">{run.error || run.error_message}</p>
+                    {run.error && (
+                      <p className="text-[11px] text-red-400 mt-1 truncate">{run.error}</p>
                     )}
                   </CardContent>
                 </Card>

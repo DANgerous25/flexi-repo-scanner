@@ -1,0 +1,44 @@
+infrastructure-as-code:
+  name: "Infrastructure as Code"
+  description: "Detect misconfigurations in Docker, Kubernetes, Terraform, and CI/CD files that could expose your infrastructure"
+  category: "security"
+  rules:
+    - id: "docker-latest-tag"
+      name: "Docker 'latest' Tag"
+      pattern: 'FROM\s+\S+:latest'
+      severity: "medium"
+    - id: "docker-root-user"
+      name: "Docker Running as Root"
+      pattern: '(?:USER\s+root|(?<!USER\s)\w+\s+root)'
+      severity: "high"
+    - id: "docker-add-vs-copy"
+      name: "Docker ADD instead of COPY"
+      pattern: 'ADD\s+'
+      severity: "low"
+    - id: "k8s-privileged"
+      name: "K8s Privileged Container"
+      pattern: 'privileged\s*:\s*true'
+      severity: "critical"
+    - id: "k8s-host-network"
+      name: "K8s Host Network"
+      pattern: 'hostNetwork\s*:\s*true'
+      severity: "high"
+    - id: "k8s-run-as-root"
+      name: "K8s Run As Root"
+      pattern: 'runAsUser\s*:\s*0'
+      severity: "high"
+    - id: "terraform-plain-text-secret"
+      name: "Terraform Plain Text Secret"
+      pattern: '(?:password|secret|api_key)\s*=\s*[''"][^''"]+[''"]'
+      severity: "critical"
+      case_sensitive: false
+    - id: "github-actions-secret-leak"
+      name: "GitHub Actions Secret in Run Command"
+      pattern: 'run:.*\$\{\{\s*secrets\.'
+      severity: "high"
+  default_allowlist:
+    - file: "docs/**"
+      reason: "Documentation may show example configurations"
+    - file: "README.md"
+      reason: "README may contain example configurations"
+  context_filters: []

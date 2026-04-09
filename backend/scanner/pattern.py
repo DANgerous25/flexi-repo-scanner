@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+import os
 import re
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Optional
 
 from backend.config import AllowlistEntry, ContextFilter, ScanRule
@@ -13,6 +16,11 @@ from backend.scanner.context import (
     is_provider_skip_file,
     should_skip_file,
 )
+
+logger = logging.getLogger(__name__)
+
+PROVIDER_KEYWORDS = {"provider", "claude", "openai", "anthropic", "gemini",
+                     "gpt", "chatgpt", "perplexity", "mistral", "groq"}
 
 
 @dataclass
@@ -32,7 +40,8 @@ def _compile_rule(rule: ScanRule) -> Optional[re.Pattern]:
     try:
         flags = 0 if rule.case_sensitive else re.IGNORECASE
         return re.compile(rule.pattern, flags)
-    except re.error:
+    except re.error as exc:
+        logger.warning("Invalid regex in rule '%s' (%s): %s", rule.id, rule.name, exc)
         return None
 
 
@@ -43,13 +52,16 @@ def _is_allowlisted(
     allowlist: list[AllowlistEntry],
 ) -> bool:
     """Check if a finding is allowlisted."""
-    import os
     basename = os.path.basename(file_path)
 
     for entry in allowlist:
         # File-level allowlist
         if entry.file:
-            file_match = file_path.endswith(entry.file) or basename == entry.file
+            file_match = (
+                basename == entry.file
+                or PurePosixPath(file_path).match(entry.file)
+                or file_path == entry.file
+            )
             if file_match:
                 if not entry.rules or rule_id in entry.rules:
                     return True
@@ -114,20 +126,14 @@ def scan_file_content(
 
             # LLM provider usage context suppression
             if use_llm_filter and line_is_llm_usage:
-                # Heuristic: if the rule id or name suggests it's about provider names
-                # and the line is in a usage context, suppress it
-                provider_keywords = {"provider", "claude", "openai", "anthropic", "gemini",
-                                    "gpt", "chatgpt", "perplexity", "mistral", "groq"}
                 rule_lower = (rule.id + " " + rule.name).lower()
-                if any(kw in rule_lower for kw in provider_keywords):
+                if any(kw in rule_lower for kw in PROVIDER_KEYWORDS):
                     continue
 
             # Dep file suppression for provider names
             if is_dep_file:
-                provider_keywords = {"provider", "claude", "openai", "anthropic", "gemini",
-                                    "gpt", "chatgpt", "perplexity", "mistral", "groq"}
                 rule_lower = (rule.id + " " + rule.name).lower()
-                if any(kw in rule_lower for kw in provider_keywords):
+                if any(kw in rule_lower for kw in PROVIDER_KEYWORDS):
                     continue
 
             # Build context snippet

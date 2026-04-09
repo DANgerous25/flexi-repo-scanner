@@ -1,0 +1,63 @@
+security-vulnerabilities:
+  name: "Security Vulnerabilities"
+  description: "Detect common security vulnerabilities including injection attacks, unsafe deserialization, eval usage, and XSS vectors"
+  category: "security"
+  rules:
+    - id: "eval-usage"
+      name: "eval() Usage"
+      pattern: '\beval\s*\('
+      severity: "critical"
+    - id: "exec-usage"
+      name: "exec() Usage"
+      pattern: '\bexec\s*\('
+      severity: "critical"
+    - id: "sql-injection-fstring"
+      name: "SQL Injection via f-string"
+      pattern: '(?:f[''"].*|[''"].*\+.*)(?:SELECT|INSERT|UPDATE|DELETE|DROP).*(?:\{.*\}|\+.*)'
+      severity: "critical"
+    - id: "command-injection"
+      name: "Command Injection"
+      pattern: '(?:os\.system|subprocess\.(?:call|run|Popen|check_output))\(.*[''"].*\+.*[''"].*\)'
+      severity: "critical"
+    - id: "dangerous-html"
+      name: "dangerouslySetInnerHTML"
+      pattern: 'dangerouslySetInnerHTML'
+      severity: "high"
+    - id: "xss-innerhtml"
+      name: "XSS via innerHTML"
+      pattern: '(?:innerHTML|outerHTML)\s*=\s*[''"].*[''"]'
+      severity: "high"
+    - id: "unsafe-deserialize"
+      name: "Unsafe Deserialization (pickle)"
+      pattern: 'pickle\.loads?\s*\('
+      severity: "critical"
+    - id: "yaml-unsafe-load"
+      name: "YAML Unsafe Load"
+      pattern: 'yaml\.load\s*\([^)]*\)'
+      severity: "high"
+    - id: "disable-ssl-verify"
+      name: "SSL Verification Disabled"
+      pattern: '(?:verify\s*=\s*False|CURLOPT_SSL_VERIFYPEER\s*=\s*false|SSL_VERIFYPEER\s*=\s*false)'
+      severity: "high"
+      case_sensitive: false
+    - id: "cors-wildcard"
+      name: "CORS Allow All Origins"
+      pattern: '(?:Access-Control-Allow-Origin|cors).*\*'
+      severity: "medium"
+      case_sensitive: false
+    - id: "http-only-url"
+      name: "HTTP URL (not HTTPS)"
+      pattern: 'http://[a-zA-Z0-9.-]+\.[a-z]{2,}'
+      severity: "low"
+    - id: "assert-in-production"
+      name: "Assert Used in Production Code"
+      pattern: '\bassert\s+'
+      severity: "low"
+  default_allowlist:
+    - file: "tests/**"
+      reason: "Tests often intentionally use insecure patterns"
+    - file: "**/test_*"
+      reason: "Test files may contain vulnerable code for testing"
+  context_filters:
+    - type: "llm-provider-usage"
+      enabled: true

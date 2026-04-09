@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.api import benchmarks, connections, notifications, results, runs, settings, tasks
+from backend.api import benchmarks, connections, notifications, recipes, results, runs, settings, tasks
+from backend.api.auth import APIKeyMiddleware
 from backend.storage import config_loader, db
 from backend.tasks import scheduler
 
@@ -69,8 +71,10 @@ app.add_middleware(
     allow_origins=["http://localhost:8400", "http://127.0.0.1:8400"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["X-API-Key", "*"],
 )
+
+app.add_middleware(APIKeyMiddleware)
 
 # API routes
 app.include_router(tasks.router)
@@ -80,6 +84,7 @@ app.include_router(results.router)
 app.include_router(benchmarks.router)
 app.include_router(settings.router)
 app.include_router(notifications.router)
+app.include_router(recipes.router)
 
 
 # Health check
@@ -105,7 +110,6 @@ async def dashboard():
 
     # Count by state
     active = sum(1 for t in all_tasks if t.active)
-    total_findings_today = 0
     failed_tasks = []
 
     for run in recent:
@@ -113,11 +117,14 @@ async def dashboard():
             failed_tasks.append(run.get("task_id", ""))
 
     task_summaries = []
+    task_ids = [t.id for t in all_tasks]
+    all_states = await db.get_all_task_states()
+    latest_runs = await db.get_latest_runs_for_tasks(task_ids)
+
     for task in all_tasks:
-        state = await db.get_task_state(task.id)
+        state = all_states.get(task.id)
         next_run = scheduler.get_next_run(task.id)
-        runs = await db.get_task_runs(task.id, 1)
-        last_run = runs[0] if runs else None
+        last_run = latest_runs.get(task.id)
 
         task_summaries.append({
             "id": task.id,
@@ -131,12 +138,19 @@ async def dashboard():
             "finding_count": last_run.get("finding_count", 0) if last_run else 0,
         })
 
+    findings_today = sum(
+        r.get("finding_count", 0)
+        for r in recent
+        if r.get("started_at", "")[:10] == datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    )
+
     return {
         "tasks": task_summaries,
         "recent_runs": recent,
         "stats": {
             "total_tasks": len(all_tasks),
             "active_tasks": active,
+            "findings_today": findings_today,
             "unread_notifications": unread,
             "failed_tasks": list(set(failed_tasks)),
         },

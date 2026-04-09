@@ -9,6 +9,7 @@ import type {
   Notification,
   LLMModel,
   DashboardStats,
+  Recipe,
 } from "./types";
 
 // ── Generic helpers ─────────────────────────────────────
@@ -303,8 +304,8 @@ export async function fetchNotifications(): Promise<Notification[]> {
   return get<Notification[]>("/api/notifications");
 }
 
-export async function markNotificationRead(id: string): Promise<void> {
-  await put<unknown>(`/api/notifications/${encodeURIComponent(id)}/read`);
+export async function markNotificationRead(id: number | string): Promise<void> {
+  await post<unknown>(`/api/notifications/${encodeURIComponent(String(id))}/read`);
 }
 
 export async function markAllNotificationsRead(): Promise<void> {
@@ -331,4 +332,57 @@ export async function analyzeFinding(data: {
   tokens: { input: number; output: number };
 }> {
   return post("/api/results/analyze", data);
+}
+
+// ── Recipes ──────────────────────────────────────────────
+
+export async function fetchRecipes(): Promise<Recipe[]> {
+  return get<Recipe[]>("/api/recipes");
+}
+
+export async function fetchRecipeDetail(recipeId: string): Promise<Recipe> {
+  return get<Recipe>(`/api/recipes/${encodeURIComponent(recipeId)}`);
+}
+
+// ── Finding Management ─────────────────────────────────
+
+export async function fetchOpenFindings(taskId?: string, limit?: number): Promise<Finding[]> {
+  const params = new URLSearchParams();
+  if (taskId) params.set("task_id", taskId);
+  if (limit) params.set("limit", String(limit));
+  params.set("status", "open");
+  const qs = params.toString();
+  return get<Finding[]>(`/api/results/findings${qs ? `?${qs}` : ""}`);
+}
+
+export async function fetchFindingsGrouped(
+  groupBy: "file" | "rule" | "severity",
+  taskId?: string,
+): Promise<Record<string, any>[]> {
+  const params = new URLSearchParams();
+  params.set("group_by", groupBy);
+  if (taskId) params.set("task_id", taskId);
+  return get<Record<string, any>[]>(`/api/results/findings?${params.toString()}`);
+}
+
+export async function dismissFinding(
+  findingId: number,
+  reason: string = "",
+): Promise<{ message: string }> {
+  return post<{ message: string }>(
+    `/api/results/findings/${findingId}/dismiss`,
+    { reason },
+  );
+}
+
+export async function reopenFinding(findingId: number): Promise<{ message: string }> {
+  return post<{ message: string }>(`/api/results/findings/${findingId}/reopen`);
+}
+
+export async function requestFixForFinding(findingId: number): Promise<{ message: string }> {
+  return post<{ message: string }>(`/api/results/findings/${findingId}/request-fix`);
+}
+
+export async function markFindingFixed(findingId: number): Promise<{ message: string }> {
+  return post<{ message: string }>(`/api/results/findings/${findingId}/mark-fixed`);
 }

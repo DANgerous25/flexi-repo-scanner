@@ -27,7 +27,7 @@ async def list_connections():
     connections = config_loader.load_connections()
     # Mask tokens in response
     return [
-        {**c.model_dump(), "token": "***" + c.token[-4:] if len(c.token) > 4 else "***"}
+        {**c.model_dump(), "token": "***" + c.token[-4:] if len(c.token) > 8 else "***"}
         for c in connections
     ]
 

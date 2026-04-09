@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -15,17 +16,33 @@ from backend.config import DATA_DIR
 DB_PATH = DATA_DIR / "scanner.db"
 
 _db: Optional[aiosqlite.Connection] = None
+_db_lock = asyncio.Lock()
+
+VALID_RUN_COLUMNS = frozenset({
+    "status", "completed_at", "total_files", "scanned_files",
+    "finding_count", "error_message", "scan_mode", "last_commit_sha",
+})
+
+VALID_TASK_STATE_COLUMNS = frozenset({
+    "status", "last_run_id", "last_commit_sha", "next_run_at",
+})
+
+VALID_FINDING_STATUS_VALUES = frozenset({
+    "open", "dismissed", "fix_pending", "fix_applied", "fix_verified",
+})
 
 
 async def get_db() -> aiosqlite.Connection:
     global _db
-    if _db is None:
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _db = await aiosqlite.connect(str(DB_PATH))
-        _db.row_factory = aiosqlite.Row
+    async with _db_lock:
+        if _db is None:
+            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _db = await aiosqlite.connect(str(DB_PATH))
+            _db.row_factory = aiosqlite.Row
         await _db.execute("PRAGMA journal_mode=WAL")
         await _db.execute("PRAGMA foreign_keys=ON")
         await _init_schema(_db)
+        await _migrate(_db)
     return _db
 
 
@@ -64,6 +81,14 @@ async def _init_schema(db: aiosqlite.Connection) -> None:
             description TEXT NOT NULL,
             matched_text TEXT,
             context TEXT,
+            status TEXT NOT NULL DEFAULT 'open',
+            dismissed_reason TEXT,
+            dismissed_at TEXT,
+            dismissed_by TEXT,
+            fix_requested_at TEXT,
+            fix_applied_at TEXT,
+            fix_verified_at TEXT,
+            first_seen_at TEXT,
             FOREIGN KEY (run_id) REFERENCES scan_runs(id)
         );
 
@@ -115,6 +140,28 @@ async def _init_schema(db: aiosqlite.Connection) -> None:
     await db.commit()
 
 
+async def _migrate(db: aiosqlite.Connection) -> None:
+    """Run schema migrations for existing databases."""
+    try:
+        cursor = await db.execute("PRAGMA table_info(findings)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "status" not in columns:
+            await db.executescript("""
+                ALTER TABLE findings ADD COLUMN status TEXT NOT NULL DEFAULT 'open';
+                ALTER TABLE findings ADD COLUMN dismissed_reason TEXT;
+                ALTER TABLE findings ADD COLUMN dismissed_at TEXT;
+                ALTER TABLE findings ADD COLUMN dismissed_by TEXT;
+                ALTER TABLE findings ADD COLUMN fix_requested_at TEXT;
+                ALTER TABLE findings ADD COLUMN fix_applied_at TEXT;
+                ALTER TABLE findings ADD COLUMN fix_verified_at TEXT;
+                ALTER TABLE findings ADD COLUMN first_seen_at TEXT;
+            """)
+            await db.commit()
+            logger.info("Migrated findings table: added status columns")
+    except Exception as e:
+            logger.warning("Migration check failed (may be fresh DB): %s", e)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -137,6 +184,9 @@ async def create_run(task_id: str, scan_mode: str = "full") -> str:
 
 
 async def update_run(run_id: str, **kwargs: Any) -> None:
+    invalid = set(kwargs.keys()) - VALID_RUN_COLUMNS
+    if invalid:
+        raise ValueError(f"Invalid column(s) for scan_runs: {invalid}")
     db = await get_db()
     sets = ", ".join(f"{k} = ?" for k in kwargs)
     vals = list(kwargs.values())
@@ -289,10 +339,14 @@ async def create_notification(task_id: str, run_id: str, title: str, message: st
 
 async def get_notifications(limit: int = 50, unread_only: bool = False) -> list[dict]:
     db = await get_db()
-    where = "WHERE read = 0" if unread_only else ""
-    rows = await db.execute_fetchall(
-        f"SELECT * FROM notifications {where} ORDER BY created_at DESC LIMIT ?", (limit,)
-    )
+    if unread_only:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM notifications WHERE read = 0 ORDER BY created_at DESC LIMIT ?", (limit,)
+        )
+    else:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM notifications ORDER BY created_at DESC LIMIT ?", (limit,)
+        )
     return [dict(r) for r in rows]
 
 
@@ -322,7 +376,37 @@ async def get_task_state(task_id: str) -> Optional[dict]:
     return dict(rows[0]) if rows else None
 
 
+async def get_all_task_states() -> dict[str, dict]:
+    """Get all task states as a dict keyed by task_id."""
+    db = await get_db()
+    rows = await db.execute_fetchall("SELECT * FROM task_states")
+    return {r["task_id"]: dict(r) for r in rows}
+
+
+async def get_latest_runs_for_tasks(task_ids: list[str]) -> dict[str, dict]:
+    """Get the latest completed/failed run for each task_id."""
+    if not task_ids:
+        return {}
+    db = await get_db()
+    placeholders = ",".join("?" for _ in task_ids)
+    rows = await db.execute_fetchall(
+        f"SELECT * FROM scan_runs WHERE task_id IN ({placeholders}) "
+        "AND status IN ('completed', 'failed', 'partial') "
+        "ORDER BY started_at DESC",
+        task_ids,
+    )
+    result = {}
+    for r in rows:
+        tid = r["task_id"]
+        if tid not in result:
+            result[tid] = dict(r)
+    return result
+
+
 async def upsert_task_state(task_id: str, **kwargs: Any) -> None:
+    invalid = set(kwargs.keys()) - VALID_TASK_STATE_COLUMNS
+    if invalid:
+        raise ValueError(f"Invalid column(s) for task_states: {invalid}")
     db = await get_db()
     existing = await get_task_state(task_id)
     if existing:
@@ -391,17 +475,149 @@ async def get_benchmark_results(benchmark_id: str) -> list[dict]:
 # ── Cleanup ──────────────────────────────────────────────────────────────
 
 async def cleanup_old_data(days: int) -> int:
-    """Delete scan runs and findings older than N days. Returns count deleted."""
+    """Delete scan runs, findings, notifications, and benchmark data older than N days.
+    Returns count of findings deleted."""
     if days <= 0:
         return 0
     db = await get_db()
-    cutoff = datetime.now(timezone.utc).isoformat()
-    # Simple approach: delete runs older than N days
     cursor = await db.execute(
         "DELETE FROM findings WHERE run_id IN (SELECT id FROM scan_runs WHERE started_at < datetime('now', ?))",
         (f"-{days} days",),
     )
     count = cursor.rowcount
     await db.execute("DELETE FROM scan_runs WHERE started_at < datetime('now', ?)", (f"-{days} days",))
+    await db.execute("DELETE FROM notifications WHERE created_at < datetime('now', ?)", (f"-{days} days",))
+    await db.execute(
+        "DELETE FROM benchmark_results WHERE benchmark_id IN "
+        "(SELECT id FROM benchmark_runs WHERE started_at < datetime('now', ?))",
+        (f"-{days} days",),
+    )
+    await db.execute("DELETE FROM benchmark_runs WHERE started_at < datetime('now', ?)", (f"-{days} days",))
     await db.commit()
     return count
+
+
+# ── Finding Management ──────────────────────────────────────────────────
+
+async def get_open_findings(task_id: str = "", limit: int = 100) -> list[dict]:
+    """Get open (non-dismissed) findings, optionally filtered by task_id."""
+    db = await get_db()
+    if task_id:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM findings WHERE task_id = ? AND status = 'open' "
+            "ORDER BY severity, file_path, line_number LIMIT ?",
+            (task_id, limit),
+        )
+    else:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM findings WHERE status = 'open' "
+            "ORDER BY severity, file_path, line_number LIMIT ?",
+            (limit,),
+        )
+    return [dict(r) for r in rows]
+
+
+async def get_finding(finding_id: int) -> Optional[dict]:
+    """Get a single finding by ID."""
+    db = await get_db()
+    rows = await db.execute_fetchall("SELECT * FROM findings WHERE id = ?", (finding_id,))
+    return dict(rows[0]) if rows else None
+
+
+async def dismiss_finding(finding_id: int, reason: str = "", dismissed_by: str = "") -> bool:
+    """Mark a finding as dismissed."""
+    db = await get_db()
+    cursor = await db.execute(
+        "UPDATE findings SET status = 'dismissed', dismissed_reason = ?, dismissed_at = ?, dismissed_by = ? WHERE id = ?",
+        (reason, _now(), dismissed_by, finding_id),
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def request_fix(finding_id: int) -> bool:
+    """Mark a finding as having a fix requested."""
+    db = await get_db()
+    cursor = await db.execute(
+        "UPDATE findings SET status = 'fix_pending', fix_requested_at = ? WHERE id = ? AND status = 'open'",
+        (_now(), finding_id),
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def mark_fix_applied(finding_id: int) -> bool:
+    """Mark a finding's fix as applied."""
+    db = await get_db()
+    cursor = await db.execute(
+        "UPDATE findings SET status = 'fix_applied', fix_applied_at = ? WHERE id = ? AND status IN ('fix_pending', 'open')",
+        (_now(), finding_id),
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def mark_fix_verified(finding_id: int) -> bool:
+    """Mark a finding's fix as verified (re-scan confirmed the fix worked)."""
+    db = await get_db()
+    cursor = await db.execute(
+        "UPDATE findings SET status = 'fix_verified', fix_verified_at = ? WHERE id = ? AND status = 'fix_applied'",
+        (_now(), finding_id),
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def reopen_finding(finding_id: int) -> bool:
+    """Reopen a dismissed finding."""
+    db = await get_db()
+    cursor = await db.execute(
+        "UPDATE findings SET status = 'open', dismissed_reason = NULL, dismissed_at = NULL WHERE id = ?",
+        (finding_id,),
+    )
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def get_findings_summary_by_task(task_id: str) -> dict:
+    """Get finding counts grouped by status for a task."""
+    db = await get_db()
+    rows = await db.execute_fetchall(
+        "SELECT status, COUNT(*) as count FROM findings WHERE task_id = ? GROUP BY status",
+        (task_id,),
+    )
+    return {r["status"]: r["count"] for r in rows}
+
+
+async def get_findings_grouped(group_by: str = "file", task_id: str = "") -> list[dict]:
+    """Get open findings grouped by file, rule, or severity."""
+    db = await get_db()
+    where = "WHERE status = 'open'"
+    params: list = []
+    if task_id:
+        where += " AND task_id = ?"
+        params.append(task_id)
+
+    if group_by == "file":
+        rows = await db.execute_fetchall(
+            f"SELECT file_path, COUNT(*) as count, "
+            f"GROUP_CONCAT(DISTINCT severity) as severities "
+            f"FROM findings {where} GROUP BY file_path ORDER BY count DESC",
+            params,
+        )
+    elif group_by == "rule":
+        rows = await db.execute_fetchall(
+            f"SELECT rule_id, category, COUNT(*) as count, "
+            f"GROUP_CONCAT(DISTINCT severity) as severities "
+            f"FROM findings {where} GROUP BY rule_id ORDER BY count DESC",
+            params,
+        )
+    elif group_by == "severity":
+        rows = await db.execute_fetchall(
+            f"SELECT severity, COUNT(*) as count FROM findings {where} GROUP BY severity",
+            params,
+        )
+    else:
+        rows = []
+
+    return [dict(r) for r in rows]

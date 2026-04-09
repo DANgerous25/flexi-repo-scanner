@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -14,6 +15,7 @@ from backend.config import DATA_DIR
 logger = logging.getLogger(__name__)
 
 _vault_instance: Optional["SecretsVault"] = None
+_vault_lock = asyncio.Lock()
 
 
 class SecretsVault:
@@ -59,8 +61,8 @@ class SecretsVault:
             encrypted = self._vault_path.read_bytes()
             decrypted = self._fernet.decrypt(encrypted)
             self._secrets = json.loads(decrypted)
-        except Exception:
-            logger.warning("Could not decrypt vault — starting empty")
+        except Exception as exc:
+            logger.warning("Could not decrypt vault — starting empty: %s", exc)
             self._secrets = {}
 
     def save(self) -> None:
@@ -83,13 +85,17 @@ class SecretsVault:
         return sorted(self._secrets.keys())
 
     def export_to_env(self) -> None:
-        """Copy all vault secrets into ``os.environ`` as a fallback."""
+        """Copy vault secrets that look like env-var references into ``os.environ``.
+        Only exports keys that are explicitly needed (uppercase _KEY/_TOKEN patterns)."""
+        import re
+        _SECRET_ENV_RE = re.compile(r"^[A-Z_]+(?:KEY|TOKEN|SECRET|PASSWORD|API_KEY)$")
         for k, v in self._secrets.items():
-            os.environ.setdefault(k, v)
+            if _SECRET_ENV_RE.match(k):
+                os.environ.setdefault(k, v)
 
 
 def get_vault(data_dir: Optional[Path] = None) -> SecretsVault:
-    """Return the module-level singleton vault (lazy-init)."""
+    """Return the module-level singleton vault (lazy-init with lock)."""
     global _vault_instance
     if _vault_instance is None:
         _vault_instance = SecretsVault(data_dir=data_dir)

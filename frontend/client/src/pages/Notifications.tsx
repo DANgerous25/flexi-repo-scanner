@@ -36,7 +36,7 @@ export default function Notifications() {
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const markReadMutation = useMutation({
-    mutationFn: (id: string) => markNotificationRead(id),
+    mutationFn: (id: number) => markNotificationRead(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });

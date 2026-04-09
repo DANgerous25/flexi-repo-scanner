@@ -128,6 +128,9 @@ class AllowlistEntry(BaseModel):
     match: str = ""
     rules: list[str] = Field(default_factory=list)
     reason: str = ""
+    finding_id: str = ""
+    expires: str = ""
+    approved_by: str = ""
 
 
 class ContextFilter(BaseModel):
@@ -164,6 +167,7 @@ class AstRule(BaseModel):
 class ScanConfig(BaseModel):
     mode: str = "full"  # "full" or "diff"
     type: str = "pattern"  # "pattern", "llm-review", "doc-coverage", "ast-pattern"
+    recipes: list[str] = Field(default_factory=list)
     paths: dict[str, list[str]] = Field(default_factory=lambda: {
         "include": ["**/*"],
         "exclude": ["node_modules/", "*.lock", "dist/", "build/", "__pycache__/"],
@@ -176,13 +180,16 @@ class ScanConfig(BaseModel):
 
 
 class TaskAction(BaseModel):
-    type: str  # "email-report", "generate-fix-prompt", "github-issue", "in-app-notify"
+    type: str  # "email-report", "generate-fix-prompt", "github-issue", "in-app-notify", "ai-fix-request"
     trigger: str = "findings"  # "always", "findings", "fixed"
     recipients: list[str] = Field(default_factory=list)
     template: str = ""
     output: str = "file"
     labels: list[str] = Field(default_factory=list)
     assign: str = ""
+    model: str = ""
+    target: str = "patch-file"  # "github-pr" | "patch-file" | "clipboard"
+    re_scan_after_fix: bool = False
 
 
 class TaskConfig(BaseModel):

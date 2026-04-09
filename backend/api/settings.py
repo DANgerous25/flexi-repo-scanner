@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from backend.config import AppSettings
 from backend.llm import router as llm
+from backend.llm.router import PROVIDER_ENV_MAP
 from backend.storage import config_loader
 
 logger = logging.getLogger(__name__)
@@ -16,17 +17,6 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
 # ── Vault helpers ─────────────────────────────────────────────────────
-
-# Mapping of provider names → env-var names for API keys
-_PROVIDER_ENV_MAP: dict[str, str] = {
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "groq": "GROQ_API_KEY",
-    "deepseek": "DEEPSEEK_API_KEY",
-    "mistral": "MISTRAL_API_KEY",
-    "xai": "XAI_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-}
 
 
 def _store_secret(key: str, value: str) -> None:
@@ -55,14 +45,18 @@ async def get_settings():
     for provider, cfg in providers.items():
         if isinstance(cfg, dict) and cfg.get("api_key"):
             key = cfg["api_key"]
-            cfg["api_key"] = "***" + key[-4:] if len(key) > 4 else "***"
+            cfg["api_key"] = "***" + key[-4:] if len(key) > 8 else "***"
 
     return data
 
 
 @router.put("")
 async def update_settings(data: dict):
-    """Update settings."""
+    """Update settings. Only recognized top-level keys are merged."""
+    allowed_keys = {"server", "smtp", "llm", "retention"}
+    unknown = set(data.keys()) - allowed_keys
+    if unknown:
+        raise HTTPException(400, f"Unknown settings keys: {unknown}")
     current = config_loader.load_settings()
     current_data = current.model_dump()
 
@@ -92,7 +86,7 @@ async def update_settings(data: dict):
                 cfg["api_key"] = existing.get("api_key", "")
             elif api_key and not api_key.startswith("${"):
                 # Real new key — store in vault
-                env_var = _PROVIDER_ENV_MAP.get(provider, f"{provider.upper()}_API_KEY")
+                env_var = PROVIDER_ENV_MAP.get(provider, f"{provider.upper()}_API_KEY")
                 _store_secret(env_var, api_key)
                 cfg["api_key"] = "${" + env_var + "}"
 
@@ -256,7 +250,7 @@ async def update_provider_api_key(data: ProviderApiKeyUpdate):
     # Update the API key
     if new_api_key and not new_api_key.startswith("***"):
         # Store in vault
-        env_var = _PROVIDER_ENV_MAP.get(provider_name, f"{provider_name.upper()}_API_KEY")
+        env_var = PROVIDER_ENV_MAP.get(provider_name, f"{provider_name.upper()}_API_KEY")
         _store_secret(env_var, new_api_key)
         providers[provider_name]["api_key"] = "${" + env_var + "}"
     elif not new_api_key:
@@ -286,11 +280,15 @@ async def update_github_token(data: GitHubTokenUpdate):
     # Store in vault
     _store_secret("GITHUB_TOKEN", new_token)
 
-    # Update connections.yaml to use the vault reference
+    # Update connections.yaml to use the vault reference (only those already using it)
     from backend.storage import config_loader as cl
     connections = cl.load_connections()
+    changed = False
     for conn in connections:
-        conn.token = "${GITHUB_TOKEN}"
-    cl.save_connections(connections)
+        if conn.token in ("", "${GITHUB_TOKEN}") or conn.token == new_token:
+            conn.token = "${GITHUB_TOKEN}"
+            changed = True
+    if changed:
+        cl.save_connections(connections)
 
     return {"message": "GitHub token updated"}

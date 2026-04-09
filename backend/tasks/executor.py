@@ -11,8 +11,6 @@ import tempfile
 import xml.etree.ElementTree as ET
 from typing import Any, Optional
 
-import tree_sitter_languages
-
 from backend.config import AppSettings, TaskConfig, AstRule, AstNodePattern
 from backend.scanner.github import GitHubClient, GitHubFile, filter_files
 from backend.scanner.pattern import Finding, scan_file_content
@@ -26,14 +24,19 @@ logger = logging.getLogger(__name__)
 _running_runs: dict[str, asyncio.Task] = {}
 _language_failures: set[str] = set()
 
+try:
+    import tree_sitter_languages as _tsl
+    LIB_PATH = os.path.join(os.path.dirname(_tsl.__file__), "languages.so")
+except ImportError:
+    _tsl = None
+    LIB_PATH = ""
+
 LANGUAGE_NAMES = {
     ".py": "python",
     ".js": "javascript",
     ".ts": "typescript",
     ".tsx": "typescript",
 }
-
-LIB_PATH = os.path.join(os.path.dirname(tree_sitter_languages.__file__), "languages.so")
 
 
 def _language_for_file(file_path: str) -> Optional[str]:
@@ -97,6 +100,9 @@ def _flatten_nodes(root: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _parse_cli_nodes(content: str, language_name: str, ext: str) -> list[dict[str, Any]]:
+    if _tsl is None:
+        logger.warning("tree_sitter_languages not installed — AST scanning unavailable")
+        return []
     if language_name in _language_failures:
         return []
 
@@ -284,12 +290,49 @@ class TaskCancelled(Exception):
     """Raised when a run is cancelled or stopped via the API."""
 
 
+def _expand_recipes(task: TaskConfig) -> TaskConfig:
+    """Expand recipe references into rules, allowlists, and context_filters."""
+    if not task.scan.recipes:
+        return task
+
+    from backend.recipes import resolve_recipes
+    resolved = resolve_recipes(task.scan.recipes)
+
+    existing_rule_ids = {r.id for r in task.scan.rules}
+    for rule in resolved["rules"]:
+        if rule.id not in existing_rule_ids:
+            task.scan.rules.append(rule)
+
+    existing_allowlist_keys = {
+        (e.file, e.pattern, e.match) for e in task.scan.allowlist
+    }
+    for entry in resolved["allowlist"]:
+        key = (entry.file, entry.pattern, entry.match)
+        if key not in existing_allowlist_keys:
+            task.scan.allowlist.append(entry)
+
+    existing_cf_types = {cf.type for cf in task.scan.context_filters}
+    for cf in resolved["context_filters"]:
+        if cf.type not in existing_cf_types:
+            task.scan.context_filters.append(cf)
+
+    if task.scan.type == "pattern" and not task.scan.rules:
+        pass
+    elif task.scan.type == "pattern" and task.scan.recipes:
+        task.scan.type = "pattern"
+
+    return task
+
+
 async def _check_cancelled(run_id: str) -> bool:
     status = await db.get_run_status(run_id)
     return status in ("cancelled", "failed")
 
 
 async def run_task(task: TaskConfig, settings: AppSettings) -> str:
+    # Expand recipes into rules, allowlists, and context_filters
+    task = _expand_recipes(task)
+
     conn = config_loader.get_connection(task.connection)
     if not conn:
         raise ValueError(f"Connection '{task.connection}' not found")
@@ -585,10 +628,20 @@ async def _run_actions(
 ) -> None:
     has_findings = len(findings) > 0
 
+    previous_findings_count = 0
+    current_findings_count = len(findings)
+    if has_findings:
+        task_runs = await db.get_task_runs(task.id, 2)
+        if len(task_runs) >= 2:
+            previous_findings_count = task_runs[1].get("finding_count", 0)
+
+    has_fixed = previous_findings_count > current_findings_count
+
     for action in task.actions:
         should_run = (
             action.trigger == "always"
             or (action.trigger == "findings" and has_findings)
+            or (action.trigger == "fixed" and has_fixed)
         )
         if not should_run:
             continue
@@ -600,6 +653,9 @@ async def _run_actions(
                 await github_issue.create(task, run_id, findings, conn, action)
             elif action.type in ("generate-fix-prompt", "generate-prompt"):
                 await generate_prompt.generate(task, run_id, findings)
+            elif action.type == "ai-fix-request":
+                from backend.actions import ai_fix
+                await ai_fix.generate_and_apply(task, run_id, findings, conn, action, settings)
             elif action.type == "in-app-notify":
                 await in_app_notify.notify(task, run_id, findings)
         except Exception as e:

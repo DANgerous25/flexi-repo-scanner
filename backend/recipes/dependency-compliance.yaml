@@ -1,0 +1,23 @@
+dependency-compliance:
+  name: "Dependency Compliance"
+  description: "Detect dependency management issues like pinned vs unpinned versions, deprecated packages, and license concerns"
+  category: "compliance"
+  rules:
+    - id: "unpinned-docker-image"
+      name: "Unpinned Docker Image Version"
+      pattern: 'FROM\s+\w+/\w+:(?!latest)\d+\.\d+(?!\.\d+)'
+      severity: "medium"
+    - id: "npm-audit-ignore"
+      name: "npm audit fix ignored"
+      pattern: '//\s*npm\s+audit\s+fix'
+      severity: "low"
+    - id: "deprecated-pypi-package"
+      name: "Deprecated PyPI Package Reference"
+      pattern: '(?:pip\s+install|requirements.*)(?:\s+|--)(?:pillow|numpy|scipy|django|flask)==[0-9]+\.[0-9]+\.[0-9]+'
+      severity: "info"
+    - id: "commit-lockfile-comment"
+      name: "Lockfile Commented Out"
+      pattern: '#\s*(?:package-lock|yarn\.lock|pnpm-lock)'
+      severity: "medium"
+  default_allowlist: []
+  context_filters: []

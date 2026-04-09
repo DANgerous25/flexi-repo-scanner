@@ -40,16 +40,22 @@ export interface AllowlistEntry {
   match?: string;
   rules?: string[];
   reason: string;
+  finding_id?: string;
+  expires?: string;
+  approved_by?: string;
 }
 
 export interface TaskAction {
-  type: "email-report" | "generate-fix-prompt" | "github-issue" | "generate-prompt" | "in-app-notify";
+  type: "email-report" | "generate-fix-prompt" | "github-issue" | "generate-prompt" | "in-app-notify" | "ai-fix-request";
   trigger: ActionTrigger;
   recipients?: string[];
   template?: string;
   output?: "file" | "clipboard" | "stdout";
   labels?: string[];
   assign?: string;
+  model?: string;
+  target?: "github-pr" | "patch-file" | "clipboard";
+  re_scan_after_fix?: boolean;
 }
 
 // ── Task ─────────────────────────────────────────────────
@@ -67,6 +73,7 @@ export interface Task {
   scan: {
     mode: ScanMode;
     type: ScanType;
+    recipes?: string[];
     paths: {
       include: string[];
       exclude: string[];
@@ -117,8 +124,10 @@ export interface TaskRun {
   error?: string;
 }
 
+export type FindingStatus = "open" | "dismissed" | "fix_pending" | "fix_applied" | "fix_verified";
+
 export interface Finding {
-  id: string;
+  id: number;
   run_id: string;
   file: string;
   line?: number;
@@ -128,6 +137,14 @@ export interface Finding {
   rule_name: string;
   matched_text: string;
   context?: string;
+  status?: FindingStatus;
+  dismissed_reason?: string;
+  dismissed_at?: string;
+  dismissed_by?: string;
+  fix_requested_at?: string;
+  fix_applied_at?: string;
+  fix_verified_at?: string;
+  task_id?: string;
 }
 
 // ── Benchmark ────────────────────────────────────────────
@@ -194,7 +211,7 @@ export interface LLMModel {
 
 // ── Notification ─────────────────────────────────────────
 export interface Notification {
-  id: string;
+  id: number;
   title: string;
   message: string;
   timestamp: string;
@@ -219,9 +236,18 @@ export interface DashboardTask {
   id: string;
   name: string;
   state: TaskState;
-  scan_type: ScanType;
+  scan_type: ScanType | "ast-pattern";
   last_run?: string;
   next_run?: string;
   findings_count: number;
   connection: string;
+}
+
+// ── Recipes ────────────────────────────────────────────────
+export interface Recipe {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  rule_count: number;
 }

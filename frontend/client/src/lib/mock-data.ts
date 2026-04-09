@@ -225,19 +225,19 @@ export const mockRunHistory: TaskRun[] = [
 ];
 
 export const mockFindings: Finding[] = [
-  { id: "f-1", run_id: "run-1", file: "src/config/database.py", line: 42, severity: "critical", category: "Credentials", rule_id: "hardcoded-secret", rule_name: "Hardcoded API Key", matched_text: "api_key = \"sk-proj-abc123...\"" },
-  { id: "f-2", run_id: "run-1", file: "src/utils/email.py", line: 15, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "user@example-corp.com" },
-  { id: "f-3", run_id: "run-1", file: "src/utils/email.py", line: 28, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "admin@internal.corp" },
-  { id: "f-4", run_id: "run-1", file: "README.md", line: 5, severity: "critical", category: "AI Attribution", rule_id: "ai-authorship", rule_name: "AI Tool Attribution", matched_text: "Built with Claude Code" },
-  { id: "f-5", run_id: "run-1", file: "docs/setup.md", line: 102, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "john.smith@company.com" },
-  { id: "f-6", run_id: "run-1", file: "src/auth/providers.ts", line: 78, severity: "critical", category: "Credentials", rule_id: "hardcoded-secret", rule_name: "Hardcoded API Key", matched_text: "access_token = \"ghp_xxxx...\"" },
-  { id: "f-7", run_id: "run-1", file: "tests/fixtures/users.json", line: 3, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "testuser@example.org" },
-  { id: "f-8", run_id: "run-1", file: "src/services/notification.py", line: 55, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "noreply@myapp.io" },
-  { id: "f-9", run_id: "run-6", file: "src/auth/secrets.py", line: 12, severity: "critical", category: "Secrets", rule_id: "hardcoded-secret-ast", rule_name: "Hardcoded API Key (AST)", matched_text: "api_key = 'sk-proj-abc123def456ghi789jkl012mno345pqr'" },
-  { id: "f-10", run_id: "run-6", file: "src/utils/helpers.py", line: 23, severity: "critical", category: "Security", rule_id: "dangerous-function-call", rule_name: "Dangerous Function Call", matched_text: "result = eval(user_input)" },
-  { id: "f-11", run_id: "run-6", file: "src/db/queries.py", line: 45, severity: "critical", category: "SQL Injection", rule_id: "sql-injection-ast", rule_name: "Potential SQL Injection (AST)", matched_text: "query = 'SELECT * FROM users WHERE id = ' + user_id" },
-  { id: "f-12", run_id: "run-6", file: "src/services/processor.py", line: 78, severity: "medium", category: "Code Quality", rule_id: "too-many-params", rule_name: "Function with Too Many Parameters", matched_text: "def process_data(a, b, c, d, e, f, g, h):" },
-  { id: "f-13", run_id: "run-6", file: "src/config/settings.py", line: 15, severity: "critical", category: "Secrets", rule_id: "hardcoded-secret-ast", rule_name: "Hardcoded API Key (AST)", matched_text: "SECRET_TOKEN = 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'" },
+  { id: 1, run_id: "run-1", file: "src/config/database.py", line: 42, severity: "critical", category: "Credentials", rule_id: "hardcoded-secret", rule_name: "Hardcoded API Key", matched_text: "api_key = \"sk-proj-abc123...\"" },
+  { id: 2, run_id: "run-1", file: "src/utils/email.py", line: 15, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "user@example-corp.com" },
+  { id: 3, run_id: "run-1", file: "src/utils/email.py", line: 28, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "admin@internal.corp" },
+  { id: 4, run_id: "run-1", file: "README.md", line: 5, severity: "critical", category: "AI Attribution", rule_id: "ai-authorship", rule_name: "AI Tool Attribution", matched_text: "Built with Claude Code" },
+  { id: 5, run_id: "run-1", file: "docs/setup.md", line: 102, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "john.smith@company.com" },
+  { id: 6, run_id: "run-1", file: "src/auth/providers.ts", line: 78, severity: "critical", category: "Credentials", rule_id: "hardcoded-secret", rule_name: "Hardcoded API Key", matched_text: "access_token = \"ghp_xxxx...\"" },
+  { id: 7, run_id: "run-1", file: "tests/fixtures/users.json", line: 3, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "testuser@example.org" },
+  { id: 8, run_id: "run-1", file: "src/services/notification.py", line: 55, severity: "high", category: "PII", rule_id: "email-address", rule_name: "Email Addresses", matched_text: "noreply@myapp.io" },
+  { id: 9, run_id: "run-6", file: "src/auth/secrets.py", line: 12, severity: "critical", category: "Secrets", rule_id: "hardcoded-secret-ast", rule_name: "Hardcoded API Key (AST)", matched_text: "api_key = 'sk-proj-abc123def456ghi789jkl012mno345pqr'" },
+  { id: 10, run_id: "run-6", file: "src/utils/helpers.py", line: 23, severity: "critical", category: "Security", rule_id: "dangerous-function-call", rule_name: "Dangerous Function Call", matched_text: "result = eval(user_input)" },
+  { id: 11, run_id: "run-6", file: "src/db/queries.py", line: 45, severity: "critical", category: "SQL Injection", rule_id: "sql-injection-ast", rule_name: "Potential SQL Injection (AST)", matched_text: "query = 'SELECT * FROM users WHERE id = ' + user_id" },
+  { id: 12, run_id: "run-6", file: "src/services/processor.py", line: 78, severity: "medium", category: "Code Quality", rule_id: "too-many-params", rule_name: "Function with Too Many Parameters", matched_text: "def process_data(a, b, c, d, e, f, g, h):" },
+  { id: 13, run_id: "run-6", file: "src/config/settings.py", line: 15, severity: "critical", category: "Secrets", rule_id: "hardcoded-secret-ast", rule_name: "Hardcoded API Key (AST)", matched_text: "SECRET_TOKEN = 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'" },
 ];
 
 export const mockBenchmarks: BenchmarkResult[] = [
@@ -270,12 +270,12 @@ export const mockSettings: Settings = {
 };
 
 export const mockNotifications: Notification[] = [
-  { id: "n-1", title: "PII Scanner completed", message: "Found 8 findings in my-project", timestamp: "2026-03-31T00:15:42Z", read: false, task_id: "pii-scan", run_id: "run-1", type: "findings" },
-  { id: "n-2", title: "Vulnerability Scan failed", message: "Connection rate limited for api-server", timestamp: "2026-03-30T23:01:12Z", read: false, task_id: "vuln-scan", run_id: "run-2", type: "error" },
-  { id: "n-3", title: "License Audit completed", message: "Found 2 findings in frontend-app", timestamp: "2026-03-30T08:02:30Z", read: false, task_id: "license-audit", run_id: "run-3", type: "findings" },
-  { id: "n-4", title: "Weekly Code Review completed", message: "Found 4 findings in my-project", timestamp: "2026-03-24T02:03:20Z", read: true, task_id: "code-review", run_id: "run-4", type: "findings" },
-  { id: "n-5", title: "PII Scanner completed", message: "Found 6 findings in my-project", timestamp: "2026-03-30T00:15:38Z", read: true, task_id: "pii-scan", run_id: "run-5", type: "findings" },
-  { id: "n-6", title: "AST Security Scanner completed", message: "Found 5 findings in my-project", timestamp: "2026-03-31T09:01:15Z", read: false, task_id: "ast-security-scan", run_id: "run-6", type: "findings" },
+  { id: 1, title: "PII Scanner completed", message: "Found 8 findings in my-project", timestamp: "2026-03-31T00:15:42Z", read: false, task_id: "pii-scan", run_id: "run-1", type: "findings" },
+  { id: 2, title: "Vulnerability Scan failed", message: "Connection rate limited for api-server", timestamp: "2026-03-30T23:01:12Z", read: false, task_id: "vuln-scan", run_id: "run-2", type: "error" },
+  { id: 3, title: "License Audit completed", message: "Found 2 findings in frontend-app", timestamp: "2026-03-30T08:02:30Z", read: false, task_id: "license-audit", run_id: "run-3", type: "findings" },
+  { id: 4, title: "Weekly Code Review completed", message: "Found 4 findings in my-project", timestamp: "2026-03-24T02:03:20Z", read: true, task_id: "code-review", run_id: "run-4", type: "findings" },
+  { id: 5, title: "PII Scanner completed", message: "Found 6 findings in my-project", timestamp: "2026-03-30T00:15:38Z", read: true, task_id: "pii-scan", run_id: "run-5", type: "findings" },
+  { id: 6, title: "AST Security Scanner completed", message: "Found 5 findings in my-project", timestamp: "2026-03-31T09:01:15Z", read: false, task_id: "ast-security-scan", run_id: "run-6", type: "findings" },
 ];
 
 export const mockModels: LLMModel[] = [
