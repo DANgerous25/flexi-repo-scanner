@@ -177,7 +177,7 @@ def _now() -> str:
 
 
 def _new_id() -> str:
-    return uuid.uuid4.hex[:12]
+    return uuid.uuid4().hex[:12]
 
 
 async def _fetchall(db: aiosqlite.Connection, sql: str, params: Any = ()) -> list[dict]:
