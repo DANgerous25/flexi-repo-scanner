@@ -21,8 +21,9 @@ pii-detection:
       severity: "critical"
     - id: "ip-address"
       name: "Internal IP Address"
-      pattern: '\b(?:10|172\.(?:1[6-9]|2[0-9]|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b'
+      pattern: '\b(?:10|172\.(?:1[6-9]|2[0-9]|3[01])|192\.168)\.\d{1,3}\.\d{1,3}(?:/\d{1,2})?\b'
       severity: "low"
+      context_requires: '(?:hostname|host|ip|server|address|endpoint|localhost|socket|bind|listen|connect|proxy|network)'
     - id: "street-address"
       name: "Street Address Pattern"
       pattern: '\d+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Lane|Ln|Drive|Dr|Court|Ct)\b'

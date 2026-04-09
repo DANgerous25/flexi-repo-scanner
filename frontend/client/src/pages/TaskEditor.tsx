@@ -21,8 +21,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { fetchTask, createTask, updateTask, fetchConnections, fetchModels, generateRules } from '@/lib/api';
-import type { Task, Connection, LLMModel, PatternRule, AllowlistEntry, TaskAction, Severity, AstRule, AstNodePattern } from '@/lib/types';
+import { fetchTask, createTask, updateTask, fetchConnections, fetchModels, fetchRecipes, generateRules } from '@/lib/api';
+import type { Task, Connection, LLMModel, PatternRule, AllowlistEntry, TaskAction, Severity, AstRule, AstNodePattern, Recipe } from '@/lib/types';
 import {
   Save,
   X,
@@ -252,6 +252,11 @@ export default function TaskEditor() {
     queryFn: fetchModels,
   });
 
+  const { data: recipes = [] } = useQuery<Recipe[]>({
+    queryKey: ['/api/recipes'],
+    queryFn: fetchRecipes,
+  });
+
   const [initialized, setInitialized] = useState(false);
   const [showYaml, setShowYaml] = useState(false);
   const [name, setName] = useState('');
@@ -271,6 +276,7 @@ export default function TaskEditor() {
   const [maxFiles, setMaxFiles] = useState('50');
   const [allowlist, setAllowlist] = useState<AllowlistEntry[]>([]);
   const [actions, setActions] = useState<TaskAction[]>([]);
+  const [selectedRecipes, setSelectedRecipes] = useState<string[]>([]);
   const [builderPrompt, setBuilderPrompt] = useState('');
   const [refinementPrompt, setRefinementPrompt] = useState('');
   const [refinementCopied, setRefinementCopied] = useState(false);
@@ -338,6 +344,7 @@ export default function TaskEditor() {
     setMaxFiles(existingTask.scan.llm?.max_files_per_run?.toString() || '50');
     setAllowlist(existingTask.scan.allowlist || []);
     setActions(existingTask.actions || []);
+    setSelectedRecipes(existingTask.scan.recipes || []);
     setBuilderPrompt(existingTask.task_builder_prompt || '');
     setInitialized(true);
   }
@@ -383,6 +390,7 @@ export default function TaskEditor() {
       scan: {
         mode: scanMode,
         type: scanType,
+        recipes: selectedRecipes.length > 0 ? selectedRecipes : undefined,
         paths: {
           include: includeGlobs.split(',').map((g) => g.trim()).filter(Boolean),
           exclude: excludeGlobs.split(',').map((g) => g.trim()).filter(Boolean),
@@ -482,6 +490,7 @@ export default function TaskEditor() {
     scan: {
       mode: scanMode,
       type: scanType,
+      recipes: selectedRecipes.length > 0 ? selectedRecipes : undefined,
       paths: {
         include: includeGlobs.split(',').map((g) => g.trim()).filter(Boolean),
         exclude: excludeGlobs.split(',').map((g) => g.trim()).filter(Boolean),
@@ -796,7 +805,382 @@ ${actions.map((a) => `  - type: "${a.type}"\n    trigger: "${a.trigger}"${a.reci
             </Card>
           )}
 
-          {/* ... other sections like LLM config, Allowlist, Actions */}
+          {/* Recipe Pack Selector */}
+          {scanType === 'pattern' && (
+            <Card className="bg-card border-card-border">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold">Recipe Packs</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground">Select pre-built rule packs instead of writing regex. Rules from recipes are merged with any custom rules above.</p>
+                <div className="grid grid-cols-1 gap-2">
+                  {recipes.map((recipe) => {
+                    const isSelected = selectedRecipes.includes(recipe.id);
+                    return (
+                      <label
+                        key={recipe.id}
+                        className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                          isSelected ? 'border-cyan-500/50 bg-cyan-500/5' : 'border-border bg-background hover:border-border/80'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {
+                            setSelectedRecipes(
+                              isSelected
+                                ? selectedRecipes.filter((r) => r !== recipe.id)
+                                : [...selectedRecipes, recipe.id]
+                            );
+                          }}
+                          className="mt-0.5 accent-cyan-500"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium">{recipe.name}</span>
+                            <Badge variant="outline" className="text-[10px]">{recipe.category}</Badge>
+                            <Badge variant="outline" className="text-[10px]">{recipe.rule_count} rules</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">{recipe.description}</p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* LLM Generate / Refine */}
+          {scanType === 'pattern' && (
+            <Card className="bg-card border-card-border">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-cyan-400" />
+                  AI Rule Builder
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Generate */}
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Generate rules from a description</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={builderPrompt}
+                      onChange={(e) => setBuilderPrompt(e.target.value)}
+                      placeholder="e.g., Detect hardcoded AWS credentials and S3 bucket URLs"
+                      className="h-9 text-sm bg-background border-border flex-1"
+                      data-testid="input-generate-prompt"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleGenerate}
+                      disabled={generateLoading || !builderPrompt.trim()}
+                      className="h-9 gap-1.5 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10"
+                      data-testid="button-generate"
+                    >
+                      {generateLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                      Generate
+                    </Button>
+                  </div>
+                  {generatePreview && (
+                    <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-cyan-400">Suggested Rules</span>
+                        <span className="text-[10px] text-muted-foreground">{generatePreview.model} · {generatePreview.tokens.input}→{generatePreview.tokens.output} tokens</span>
+                      </div>
+                      <pre className="text-xs font-code bg-background rounded p-2 max-h-60 overflow-auto">{generatePreview.suggestions}</pre>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={() => applyGeneratedRules('add')} className="h-7 text-xs gap-1" data-testid="button-apply-add">
+                          <Plus className="w-3 h-3" /> Add to Existing
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => applyGeneratedRules('replace')} className="h-7 text-xs gap-1" data-testid="button-apply-replace">
+                          Replace All
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setGeneratePreview(null)} className="h-7 text-xs">Cancel</Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Refine */}
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground">Refine existing rules with a prompt</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={refinementPrompt}
+                      onChange={(e) => setRefinementPrompt(e.target.value)}
+                      placeholder="e.g., Make the IP address rule ignore version numbers"
+                      className="h-9 text-sm bg-background border-border flex-1"
+                      data-testid="input-refine-prompt"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRefine}
+                      disabled={refineLoading || !refinementPrompt.trim()}
+                      className="h-9 gap-1.5 text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
+                      data-testid="button-refine"
+                    >
+                      {refineLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                      Refine
+                    </Button>
+                  </div>
+                  {refinePreview && (
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-amber-400">Suggested Refinements</span>
+                        <span className="text-[10px] text-muted-foreground">{refinePreview.model} · {refinePreview.tokens.input}→{refinePreview.tokens.output} tokens</span>
+                      </div>
+                      <pre className="text-xs font-code bg-background rounded p-2 max-h-60 overflow-auto">{refinePreview.suggestions}</pre>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={applyRefineSuggestions} className="h-7 text-xs gap-1" data-testid="button-apply-refine">
+                          <Check className="w-3 h-3" /> Apply Changes
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setRefinePreview(null)} className="h-7 text-xs">Cancel</Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* LLM Config (for llm-review and doc-coverage) */}
+          {(scanType === 'llm-review' || scanType === 'doc-coverage') && (
+            <Card className="bg-card border-card-border">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold">LLM Configuration</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-3 gap-3">
+                  {preferredModels.map((m, i) => (
+                    <div key={i}>
+                      <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                        Model {i === 0 ? '(Primary)' : i === 1 ? '(Fallback 1)' : '(Fallback 2)'}
+                      </Label>
+                      <Select value={m} onValueChange={(v) => {
+                        const updated = [...preferredModels];
+                        updated[i] = v;
+                        setPreferredModels(updated);
+                      }}>
+                        <SelectTrigger className="mt-0.5 h-8 text-xs bg-card border-card-border">
+                          <SelectValue placeholder="Select model" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(modelGroups.configured).map(([provider, pModels]) => (
+                            <SelectGroup key={provider}>
+                              <SelectLabel className="text-[10px] uppercase">{provider}</SelectLabel>
+                              {pModels.map((model) => (
+                                <SelectItem key={model.id} value={model.id} className="text-xs">{model.name}</SelectItem>
+                              ))}
+                            </SelectGroup>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+                {scanType === 'llm-review' && (
+                  <>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Prompt Template</Label>
+                      <Select value={promptTemplate} onValueChange={setPromptTemplate}>
+                        <SelectTrigger className="mt-1 h-9 text-sm bg-background border-border">
+                          <SelectValue placeholder="Select template" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="security-review">Security Review</SelectItem>
+                          <SelectItem value="code-quality">Code Quality</SelectItem>
+                          <SelectItem value="code-review">Code Review</SelectItem>
+                          <SelectItem value="doc-coverage">Documentation Coverage</SelectItem>
+                          <SelectItem value="license-audit">License Audit</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Focus Areas (comma-separated)</Label>
+                      <Input value={focusTags} onChange={(e) => setFocusTags(e.target.value)} className="mt-1 h-9 text-sm bg-background border-border" placeholder="e.g., security, performance, error-handling" />
+                    </div>
+                  </>
+                )}
+                <div>
+                  <Label className="text-xs text-muted-foreground">Max Files Per Run</Label>
+                  <Input type="number" value={maxFiles} onChange={(e) => setMaxFiles(e.target.value)} className="mt-1 h-9 text-sm bg-background border-border w-24" />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Allowlist */}
+          <Card className="bg-card border-card-border">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Allowlist</CardTitle>
+                <Button variant="outline" size="sm" onClick={addAllowlistEntry} className="h-7 text-xs gap-1"><Plus className="w-3 h-3" /> Add Entry</Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {allowlist.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No allowlist entries.</p>
+              ) : (
+                allowlist.map((entry, i) => (
+                  <div key={i} className="p-3 rounded-lg bg-background border border-border space-y-2">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">File / Glob</Label>
+                        <Input value={entry.file || ''} onChange={(e) => {
+                          const updated = [...allowlist];
+                          updated[i] = { ...updated[i], file: e.target.value };
+                          setAllowlist(updated);
+                        }} className="mt-0.5 h-7 text-xs font-code bg-card border-card-border" placeholder="e.g., tests/**" />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Match Text</Label>
+                        <Input value={entry.match || ''} onChange={(e) => {
+                          const updated = [...allowlist];
+                          updated[i] = { ...updated[i], match: e.target.value };
+                          setAllowlist(updated);
+                        }} className="mt-0.5 h-7 text-xs font-code bg-card border-card-border" placeholder="Exact text to ignore" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Rules (comma-sep IDs)</Label>
+                        <Input value={(entry.rules || []).join(', ')} onChange={(e) => {
+                          const updated = [...allowlist];
+                          updated[i] = { ...updated[i], rules: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) };
+                          setAllowlist(updated);
+                        }} className="mt-0.5 h-7 text-xs font-code bg-card border-card-border" placeholder="Leave empty for all rules" />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Reason</Label>
+                        <div className="flex gap-1">
+                          <Input value={entry.reason || ''} onChange={(e) => {
+                            const updated = [...allowlist];
+                            updated[i] = { ...updated[i], reason: e.target.value };
+                            setAllowlist(updated);
+                          }} className="mt-0.5 h-7 text-xs bg-card border-card-border flex-1" placeholder="Why this is allowlisted" />
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-400 mt-0.5" onClick={() => removeAllowlistEntry(i)}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Actions */}
+          <Card className="bg-card border-card-border">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Actions</CardTitle>
+                <Button variant="outline" size="sm" onClick={addAction} className="h-7 text-xs gap-1"><Plus className="w-3 h-3" /> Add Action</Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {actions.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No actions configured.</p>
+              ) : (
+                actions.map((action, i) => (
+                  <div key={i} className="p-3 rounded-lg bg-background border border-border space-y-2">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 grid grid-cols-2 gap-3">
+                        <div>
+                          <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Type</Label>
+                          <Select value={action.type} onValueChange={(v) => {
+                            const updated = [...actions];
+                            updated[i] = { ...updated[i], type: v as TaskAction['type'] };
+                            setActions(updated);
+                          }}>
+                            <SelectTrigger className="mt-0.5 h-8 text-xs bg-card border-card-border"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="in-app-notify">In-App Notification</SelectItem>
+                              <SelectItem value="ai-fix-request">AI Fix Request</SelectItem>
+                              <SelectItem value="generate-fix-prompt">Generate Fix Prompt</SelectItem>
+                              <SelectItem value="github-issue">GitHub Issue</SelectItem>
+                              <SelectItem value="email-report">Email Report</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Trigger</Label>
+                          <Select value={action.trigger} onValueChange={(v) => {
+                            const updated = [...actions];
+                            updated[i] = { ...updated[i], trigger: v as TaskAction['trigger'] };
+                            setActions(updated);
+                          }}>
+                            <SelectTrigger className="mt-0.5 h-8 text-xs bg-card border-card-border"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="findings">On Findings</SelectItem>
+                              <SelectItem value="always">Always</SelectItem>
+                              <SelectItem value="fixed">On Fixed</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-red-400" onClick={() => removeAction(i)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                    {action.type === 'ai-fix-request' && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Fix Model</Label>
+                          <Input value={action.model || ''} onChange={(e) => {
+                            const updated = [...actions];
+                            updated[i] = { ...updated[i], model: e.target.value };
+                            setActions(updated);
+                          }} className="mt-0.5 h-7 text-xs font-code bg-card border-card-border" placeholder="e.g., anthropic/claude-sonnet-4-6" />
+                        </div>
+                        <div>
+                          <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Target</Label>
+                          <Select value={action.target || 'patch-file'} onValueChange={(v) => {
+                            const updated = [...actions];
+                            updated[i] = { ...updated[i], target: v as 'github-pr' | 'patch-file' | 'clipboard' };
+                            setActions(updated);
+                          }}>
+                            <SelectTrigger className="mt-0.5 h-7 text-xs bg-card border-card-border"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="github-pr">GitHub PR</SelectItem>
+                              <SelectItem value="patch-file">Patch File</SelectItem>
+                              <SelectItem value="clipboard">Clipboard</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
+                    {action.type === 'github-issue' && (
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Labels (comma-separated)</Label>
+                        <Input value={(action.labels || []).join(', ')} onChange={(e) => {
+                          const updated = [...actions];
+                          updated[i] = { ...updated[i], labels: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) };
+                          setActions(updated);
+                        }} className="mt-0.5 h-7 text-xs bg-card border-card-border" placeholder="security, auto-scan" />
+                      </div>
+                    )}
+                    {action.type === 'email-report' && (
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">Recipients (comma-separated)</Label>
+                        <Input value={(action.recipients || []).join(', ')} onChange={(e) => {
+                          const updated = [...actions];
+                          updated[i] = { ...updated[i], recipients: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) };
+                          setActions(updated);
+                        }} className="mt-0.5 h-7 text-xs bg-card border-card-border" placeholder="email@example.com" />
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
 
         </div>
       )}
