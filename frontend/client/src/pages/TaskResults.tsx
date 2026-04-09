@@ -564,7 +564,7 @@ export default function TaskResults() {
                       <TableHead className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Severity</TableHead>
                       <TableHead className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Rule</TableHead>
                       <TableHead className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Matched Text</TableHead>
-                      <TableHead className="w-8" />
+                      <TableHead className="text-xs text-muted-foreground font-medium uppercase tracking-wider w-20">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -618,37 +618,39 @@ export default function TaskResults() {
                             {finding.matched_text}
                           </code>
                         </TableCell>
-                        <TableCell className="flex items-center gap-1">
-                          <AllowlistPopover
-                            finding={finding}
-                            taskId={taskId!}
-                            onAllowlisted={() => {
-                              setAllowlistedIds((prev) => new Set([...Array.from(prev), finding.id]));
-                              queryClient.invalidateQueries({ queryKey: [`/api/tasks/${taskId}`] });
-                            }}
-                          />
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                title="LLM actions"
-                              >
-                                <Brain className="h-3.5 w-3.5" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-52">
-                              <DropdownMenuItem onClick={() => handleAskLLM(finding)}>
-                                <Brain className="w-4 h-4 mr-2" />
-                                Analyze Finding
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleRefineRule(finding)}>
-                                <Filter className="w-4 h-4 mr-2" />
-                                Refine Rule
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <AllowlistPopover
+                              finding={finding}
+                              taskId={taskId!}
+                              onAllowlisted={() => {
+                                setAllowlistedIds((prev) => new Set([...Array.from(prev), finding.id]));
+                                queryClient.invalidateQueries({ queryKey: [`/api/tasks/${taskId}`] });
+                              }}
+                            />
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  title="LLM actions"
+                                >
+                                  <Brain className="h-3.5 w-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-56">
+                                <DropdownMenuItem onClick={() => handleAskLLM(finding)}>
+                                  <Brain className="w-4 h-4 mr-2" />
+                                  Analyze Finding
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleRefineRule(finding)}>
+                                  <Filter className="w-4 h-4 mr-2" />
+                                  Refine / Suppress Rule
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         </TableCell>
                       </TableRow>
                       );
