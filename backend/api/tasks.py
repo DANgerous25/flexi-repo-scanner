@@ -13,12 +13,38 @@ from pydantic import BaseModel
 
 from backend.config import TaskConfig
 from backend.llm import router as llm
+from backend.recipes import resolve_recipes
 from backend.storage import config_loader, db
 from backend.tasks import executor, scheduler, templates
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+
+def _enrich_task_response(task: TaskConfig) -> dict:
+    """Build a task response dict with recipe-expanded rules."""
+    data = task.model_dump()
+    if task.scan.recipes:
+        resolved = resolve_recipes(task.scan.recipes)
+        existing_rule_ids = {r["id"] for r in data["scan"]["rules"]}
+        for rule in resolved["rules"]:
+            if rule.id not in existing_rule_ids:
+                data["scan"]["rules"].append(rule.model_dump())
+                existing_rule_ids.add(rule.id)
+        existing_al_keys = {
+            (e.get("file", ""), e.get("pattern", ""), e.get("match", ""))
+            for e in data["scan"]["allowlist"]
+        }
+        for entry in resolved["allowlist"]:
+            key = (entry.file, entry.pattern, entry.match)
+            if key not in existing_al_keys:
+                data["scan"]["allowlist"].append(entry.model_dump())
+        existing_cf_types = {cf.get("type") for cf in data["scan"]["context_filters"]}
+        for cf in resolved["context_filters"]:
+            if cf.type not in existing_cf_types:
+                data["scan"]["context_filters"].append(cf.model_dump())
+    return data
 
 
 class TaskCreateRequest(BaseModel):
@@ -187,8 +213,9 @@ async def list_tasks():
         next_run = scheduler.get_next_run(task.id)
         runs = await db.get_task_runs(task.id, 1)
         last_run = runs[0] if runs else None
+        enriched = _enrich_task_response(task)
         result.append({
-            **task.model_dump(),
+            **enriched,
             "state": state or {"status": "inactive"},
             "next_run_at": next_run,
             "findings_count": last_run.get("finding_count", 0) if last_run else 0,
@@ -206,8 +233,9 @@ async def get_task(task_id: str):
     next_run = scheduler.get_next_run(task_id)
     runs = await db.get_task_runs(task_id, 1)
     last_run = runs[0] if runs else None
+    enriched = _enrich_task_response(task)
     return {
-        **task.model_dump(),
+        **enriched,
         "state": state or {"status": "inactive"},
         "next_run_at": next_run,
         "findings_count": last_run.get("finding_count", 0) if last_run else 0,
