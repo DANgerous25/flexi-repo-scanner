@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +13,8 @@ from typing import Any, Optional
 import aiosqlite
 
 from backend.config import DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = DATA_DIR / "scanner.db"
 
