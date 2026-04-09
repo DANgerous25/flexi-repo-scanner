@@ -22,9 +22,13 @@ _cache: dict[str, dict] = {}
 
 
 def _load_recipe_file(path: Path) -> dict:
-    """Load a single recipe YAML file."""
+    """Load a single recipe YAML file. Unwraps the top-level recipe ID key."""
     with open(path) as f:
-        return yaml.safe_load(f) or {}
+        raw = yaml.safe_load(f) or {}
+    # Recipes are keyed by ID at the top level: {recipe-id: {name, rules, ...}}
+    if len(raw) == 1:
+        return next(iter(raw.values()))
+    return raw
 
 
 def list_recipes() -> list[dict[str, Any]]:
