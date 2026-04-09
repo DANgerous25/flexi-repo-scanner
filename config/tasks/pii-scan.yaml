@@ -1,0 +1,132 @@
+id: pii-scan
+name: PII & Sensitive Data Scanner
+description: Detect personal information, credentials, AI attribution, and confidential references
+active: true
+connection: wheelpilot-v2
+schedule:
+  cron: 0 1 * * *
+  timezone: Asia/Hong_Kong
+scan:
+  mode: full
+  type: pattern
+  recipes:
+    - pii-detection
+    - secrets-and-credentials
+    - ai-attribution
+  paths:
+    include:
+    - '**/*'
+    exclude:
+    - node_modules/
+    - '*.lock'
+    - dist/
+    - build/
+    - '*.min.js'
+  rules: []
+  llm:
+    model: qwen/qwen3.6-plus-preview:free
+    preferred_models:
+    - qwen/qwen3.6-plus-preview:free
+    prompt_template: ''
+    prompt: ''
+    focus: []
+    max_files_per_run: 50
+  allowlist:
+  - match: user@example.com
+    rules:
+    - email-address
+    reason: Generic placeholder email
+  - match: newuser@example.com
+    rules:
+    - email-address
+    reason: Generic placeholder email
+  - match: admin@example.com
+    rules:
+    - email-address
+    reason: Generic placeholder email
+  - match: bob@example.com
+    rules:
+    - email-address
+    reason: Generic placeholder email
+  - match: carol@example.com
+    rules:
+    - email-address
+    reason: Generic placeholder email
+  - match: dan@example.com
+    rules:
+    - email-address
+    reason: Generic placeholder email
+  - match: alice@example.com
+    rules:
+    - email-address
+    reason: Generic placeholder email
+  - match: you@example.com
+    rules:
+    - email-address
+    reason: Generic placeholder email
+  - match: x@x.com
+    rules:
+    - email-address
+    reason: Generic placeholder email
+  - match: admin@test.com
+    rules:
+    - email-address
+    reason: Generic placeholder email
+  - match: wrong@test.com
+    rules:
+    - email-address
+    reason: Generic placeholder email
+  - match: user99@test.com
+    rules:
+    - email-address
+    reason: Generic placeholder email
+  - match: support@wheelpilot.ai
+    rules:
+    - email-address
+    reason: Intentional support address
+  - match: noreply@wheelpilot.ai
+    rules:
+    - email-address
+    reason: Intentional noreply address
+  - match: app@wheelpilot.ai
+    rules:
+    - email-address
+    reason: Intentional app address
+  - match: AI-generated
+    rules:
+    - ai-authorship-generic
+    reason: Standard AI attribution phrase
+  - file: docs/mockups/
+    rules:
+    - email-address
+    reason: Mockup files contain example emails
+  - file: frontend/src/pages/DisclaimerPage.tsx
+    rules:
+    - ai-authorship
+    reason: Disclaimer page intentionally mentions AI
+  - file: specs/LEGAL_AND_NEWSLETTER_CC_PROMPT.md
+    rules:
+    - ai-authorship
+    reason: Legal spec discusses AI usage
+  - match: z@n.gJ
+    rules:
+    - email-address
+    reason: False positive — not a real email
+  - match: DA@h.Kv
+    rules:
+    - email-address
+    reason: False positive — not a real email
+  - match: 5@Oo.PW
+    rules:
+    - email-address
+    reason: False positive — not a real email
+  context_filters:
+    - type: llm-provider-usage
+      enabled: true
+actions:
+- type: in-app-notify
+  trigger: findings
+- type: ai-fix-request
+  trigger: findings
+  model: anthropic/claude-sonnet-4-6
+  target: patch-file

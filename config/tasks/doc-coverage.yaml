@@ -1,0 +1,38 @@
+id: doc-coverage
+name: Documentation Coverage
+description: Detect missing docstrings and documentation gaps
+active: true
+connection: wheelpilot-v2
+schedule:
+  cron: 0 9 * * 1
+  timezone: UTC
+scan:
+  mode: full
+  type: doc-coverage
+  paths:
+    include:
+    - '**/*.py'
+    - '**/*.ts'
+    - '**/*.tsx'
+    exclude:
+    - node_modules/
+    - dist/
+    - '*.test.*'
+    - __init__.py
+  rules: []
+  llm:
+    model: ''
+    preferred_models: []
+    prompt_template: ''
+    prompt: ''
+    focus: []
+    max_files_per_run: 50
+  allowlist: []
+  context_filters: []
+actions:
+- type: ai-fix-request
+  trigger: findings
+  model: anthropic/claude-sonnet-4-6
+  target: patch-file
+- type: in-app-notify
+  trigger: findings

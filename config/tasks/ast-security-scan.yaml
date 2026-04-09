@@ -1,0 +1,194 @@
+id: ast-security-scan
+name: AST Security Scanner
+description: AST-based security scanning for hardcoded secrets and dangerous functions
+active: true
+connection: wheelpilot-v2
+schedule:
+  cron: 0 9 * * *
+  timezone: UTC
+scan:
+  mode: full
+  type: ast-pattern
+  paths:
+    include:
+    - '**/*.py'
+    - '**/*.js'
+    - '**/*.ts'
+    exclude:
+    - '**/test_*'
+    - node_modules/
+  rules: []
+  ast_rules:
+  - id: hardcoded-secret-ast
+    name: Hardcoded API Key (AST)
+    description: Detects string literals that appear to be API keys or tokens
+    severity: critical
+    language: python
+    pattern:
+      node_type: string
+      properties: {}
+      children: null
+      value_regex: ^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9+/=_-]{32,}$
+      constraints:
+        min_length: 32
+        exclude_regex:
+        - '[A-Za-z0-9_-]+/[A-Za-z0-9_-]+'
+        - \b(groq|meta-llama|openai|anthropic|mistral)\b
+  - id: dangerous-function-call
+    name: Dangerous Function Call
+    description: Detects calls to dangerous functions like eval()
+    severity: critical
+    language: python
+    pattern:
+      node_type: call
+      properties:
+        function_name: eval
+      children: null
+      value_regex: null
+      constraints: {}
+  - id: exec-function-call
+    name: Exec Function Call
+    description: Detects calls to exec()
+    severity: critical
+    language: python
+    pattern:
+      node_type: call
+      properties:
+        function_name: exec
+      children: null
+      value_regex: null
+      constraints: {}
+  - id: yaml-unsafe-load
+    name: Unsafe YAML Load
+    description: Detects yaml.load without a safe loader
+    severity: high
+    language: python
+    pattern:
+      node_type: call
+      properties:
+        function_name: yaml.load
+      children: null
+      value_regex: null
+      constraints: {}
+  - id: pickle-loads
+    name: Pickle Deserialization
+    description: Detects pickle.loads usage
+    severity: high
+    language: python
+    pattern:
+      node_type: call
+      properties:
+        function_name: pickle.loads
+      children: null
+      value_regex: null
+      constraints: {}
+  - id: shell-true-call
+    name: Subprocess Shell True
+    description: Detects subprocess.* with shell=True
+    severity: high
+    language: python
+    pattern:
+      node_type: call
+      properties:
+        function_name: subprocess
+      children:
+      - node_type: keyword_argument
+        properties:
+          name: shell
+        value_regex: (?i)true
+        children: null
+        constraints: {}
+      value_regex: null
+      constraints: {}
+  - id: weak-hash-md5
+    name: Weak Hash (MD5)
+    description: Detects hashlib.md5 usage
+    severity: medium
+    language: python
+    pattern:
+      node_type: call
+      properties:
+        function_name: hashlib.md5
+      children: null
+      value_regex: null
+      constraints: {}
+  - id: weak-hash-sha1
+    name: Weak Hash (SHA1)
+    description: Detects hashlib.sha1 usage
+    severity: medium
+    language: python
+    pattern:
+      node_type: call
+      properties:
+        function_name: hashlib.sha1
+      children: null
+      value_regex: null
+      constraints: {}
+  - id: path-traversal-open
+    name: Path Traversal (open)
+    description: Detects open() calls on variable paths
+    severity: high
+    language: python
+    pattern:
+      node_type: call
+      properties:
+        function_name: open
+      children:
+      - node_type: identifier
+        properties: {}
+        children: null
+        constraints: {}
+      value_regex: null
+      constraints: {}
+  - id: sql-injection-ast
+    name: Potential SQL Injection (AST)
+    description: Detects string operations that might lead to SQL injection
+    severity: critical
+    language: python
+    pattern:
+      node_type: binary_op
+      properties:
+        operator: +
+      children:
+      - node_type: string
+        properties: {}
+        children: null
+        value_regex: (?i)(select|insert|update|delete)
+        constraints: {}
+      value_regex: null
+      constraints: {}
+  - id: too-many-params
+    name: Function with Too Many Parameters
+    description: Detects functions with more than 14 parameters
+    severity: medium
+    language: python
+    pattern:
+      node_type: function_definition
+      properties: {}
+      children: null
+      value_regex: null
+      constraints:
+        args_count:
+          min: 15
+  llm:
+    model: ''
+    preferred_models: []
+    prompt_template: ''
+    prompt: ''
+    focus: []
+    max_files_per_run: 50
+  allowlist:
+  - rules:
+    - too-many-params
+    reason: Financial scoring and synthesis functions require many parameters by design
+  context_filters: []
+actions:
+- type: in-app-notify
+  trigger: findings
+- type: ai-fix-request
+  trigger: findings
+  model: anthropic/claude-sonnet-4-6
+  target: github-pr
+  labels:
+  - security
+  - auto-fix

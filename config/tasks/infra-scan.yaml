@@ -1,0 +1,47 @@
+id: infra-scan
+name: Infrastructure as Code Scan
+description: Detect misconfigurations in Docker, Kubernetes, Terraform, and CI/CD files
+active: true
+connection: wheelpilot-v2
+schedule:
+  cron: 0 4 * * *
+  timezone: Asia/Hong_Kong
+scan:
+  mode: full
+  type: pattern
+  recipes:
+    - infrastructure-as-code
+    - dependency-compliance
+  paths:
+    include:
+    - '**/Dockerfile*'
+    - '**/*.yml'
+    - '**/*.yaml'
+    - '**/*.tf'
+    - '**/*.json'
+    exclude:
+    - node_modules/
+    - '*.lock'
+    - package-lock.json
+  rules: []
+  llm:
+    model: ''
+    preferred_models: []
+    prompt_template: ''
+    prompt: ''
+    focus: []
+    max_files_per_run: 50
+  allowlist:
+  - file: docs/
+    reason: Documentation may show example configurations
+  context_filters: []
+actions:
+- type: in-app-notify
+  trigger: findings
+- type: ai-fix-request
+  trigger: findings
+  model: anthropic/claude-sonnet-4-6
+  target: github-pr
+  labels:
+  - infrastructure
+  - auto-fix

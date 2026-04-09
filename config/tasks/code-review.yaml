@@ -1,0 +1,44 @@
+id: code-review
+name: Weekly Code Review
+description: LLM-powered review of recently changed files
+active: true
+connection: wheelpilot-v2
+schedule:
+  cron: 0 3 * * 1
+  timezone: Asia/Hong_Kong
+scan:
+  mode: diff
+  type: llm-review
+  paths:
+    include:
+    - '**/*.py'
+    - '**/*.ts'
+    - '**/*.tsx'
+    exclude:
+    - '**/test_*'
+    - '**/*.test.*'
+    - node_modules/
+  rules: []
+  llm:
+    model: anthropic/claude-sonnet-4-6
+    preferred_models:
+    - anthropic/claude-sonnet-4-6
+    prompt_template: code-review
+    focus:
+    - logic
+    - edge-cases
+    - error-handling
+    - performance
+    max_files_per_run: 30
+  allowlist: []
+  context_filters: []
+actions:
+- type: ai-fix-request
+  trigger: findings
+  model: anthropic/claude-sonnet-4-6
+  target: github-pr
+  labels:
+  - code-review
+  - auto-fix
+- type: in-app-notify
+  trigger: findings

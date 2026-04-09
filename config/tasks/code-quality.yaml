@@ -1,0 +1,49 @@
+id: code-quality
+name: Code Quality Review
+description: LLM-powered code quality assessment with recipe-based code smell detection
+active: true
+connection: wheelpilot-v2
+schedule:
+  cron: 0 10 * * 5
+  timezone: UTC
+scan:
+  mode: diff
+  type: llm-review
+  recipes:
+    - code-smells-python
+    - code-smells-javascript
+  paths:
+    include:
+    - '**/*.py'
+    - '**/*.ts'
+    - '**/*.tsx'
+    exclude:
+    - node_modules/
+    - dist/
+    - '*.test.*'
+    - '*.spec.*'
+  rules: []
+  llm:
+    model: anthropic/claude-sonnet-4-6
+    preferred_models:
+    - anthropic/claude-sonnet-4-6
+    prompt_template: code-quality
+    focus:
+    - complexity
+    - duplication
+    - error-handling
+    max_files_per_run: 40
+  allowlist:
+  - file: tests/
+    reason: Test files often use patterns acceptable only in testing
+  context_filters: []
+actions:
+- type: ai-fix-request
+  trigger: findings
+  model: anthropic/claude-sonnet-4-6
+  target: github-pr
+  labels:
+  - code-quality
+  - auto-fix
+- type: in-app-notify
+  trigger: findings
