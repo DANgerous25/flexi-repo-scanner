@@ -20,6 +20,7 @@ DB_PATH = DATA_DIR / "scanner.db"
 
 _db: Optional[aiosqlite.Connection] = None
 _db_lock = asyncio.Lock()
+_db_initialized = False
 
 VALID_RUN_COLUMNS = frozenset({
     "status", "completed_at", "total_files", "scanned_files",
@@ -36,24 +37,29 @@ VALID_FINDING_STATUS_VALUES = frozenset({
 
 
 async def get_db() -> aiosqlite.Connection:
-    global _db
+    global _db, _db_initialized
+    if _db is not None and _db_initialized:
+        return _db
     async with _db_lock:
-        if _db is None:
-            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-            _db = await aiosqlite.connect(str(DB_PATH))
-            _db.row_factory = aiosqlite.Row
+        if _db is not None and _db_initialized:
+            return _db
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _db = await aiosqlite.connect(str(DB_PATH))
+        _db.row_factory = aiosqlite.Row
         await _db.execute("PRAGMA journal_mode=WAL")
         await _db.execute("PRAGMA foreign_keys=ON")
         await _init_schema(_db)
         await _migrate(_db)
+        _db_initialized = True
     return _db
 
 
 async def close_db() -> None:
-    global _db
+    global _db, _db_initialized
     if _db:
         await _db.close()
-        _db = None
+    _db = None
+    _db_initialized = False
 
 
 async def _init_schema(db: aiosqlite.Connection) -> None:
@@ -146,8 +152,9 @@ async def _init_schema(db: aiosqlite.Connection) -> None:
 async def _migrate(db: aiosqlite.Connection) -> None:
     """Run schema migrations for existing databases."""
     try:
-        cursor = await db.execute("PRAGMA table_info(findings)")
-        columns = {row[1] for row in await cursor.fetchall()}
+        async with db.execute("PRAGMA table_info(findings)") as cursor:
+            rows = await cursor.fetchall()
+        columns = {row[1] for row in rows}
         if "status" not in columns:
             await db.executescript("""
                 ALTER TABLE findings ADD COLUMN status TEXT NOT NULL DEFAULT 'open';
@@ -162,7 +169,7 @@ async def _migrate(db: aiosqlite.Connection) -> None:
             await db.commit()
             logger.info("Migrated findings table: added status columns")
     except Exception as e:
-            logger.warning("Migration check failed (may be fresh DB): %s", e)
+        logger.warning("Migration check failed (may be fresh DB): %s", e)
 
 
 def _now() -> str:
@@ -170,7 +177,21 @@ def _now() -> str:
 
 
 def _new_id() -> str:
-    return uuid.uuid4().hex[:12]
+    return uuid.uuid4.hex[:12]
+
+
+async def _fetchall(db: aiosqlite.Connection, sql: str, params: Any = ()) -> list[dict]:
+    """Execute a SELECT and return all rows as dicts, with cursor properly closed."""
+    async with db.execute(sql, params) as cursor:
+        rows = await cursor.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def _fetchone(db: aiosqlite.Connection, sql: str, params: Any = ()) -> Optional[dict]:
+    """Execute a SELECT and return one row as dict, with cursor properly closed."""
+    async with db.execute(sql, params) as cursor:
+        row = await cursor.fetchone()
+    return dict(row) if row else None
 
 
 # ── Scan Runs ────────────────────────────────────────────────────────────
@@ -194,7 +215,8 @@ async def update_run(run_id: str, **kwargs: Any) -> None:
     sets = ", ".join(f"{k} = ?" for k in kwargs)
     vals = list(kwargs.values())
     vals.append(run_id)
-    await db.execute(f"UPDATE scan_runs SET {sets} WHERE id = ?", vals)
+    async with db.execute(f"UPDATE scan_runs SET {sets} WHERE id = ?", vals):
+        pass
     await db.commit()
 
 
@@ -228,10 +250,7 @@ async def recover_stale_runs() -> list[dict]:
     """Find all runs stuck in 'running' status and mark them as failed.
     Returns the list of recovered runs."""
     db = await get_db()
-    rows = await db.execute_fetchall(
-        "SELECT * FROM scan_runs WHERE status = 'running'"
-    )
-    stale = [dict(r) for r in rows]
+    stale = await _fetchall(db, "SELECT * FROM scan_runs WHERE status = 'running'")
     now = _now()
     for run in stale:
         await db.execute(
@@ -261,37 +280,33 @@ async def _check_run_timeout(run: dict) -> dict:
 
 async def get_run(run_id: str) -> Optional[dict]:
     db = await get_db()
-    row = await db.execute_fetchall("SELECT * FROM scan_runs WHERE id = ?", (run_id,))
-    if not row:
+    run = await _fetchone(db, "SELECT * FROM scan_runs WHERE id = ?", (run_id,))
+    if not run:
         return None
-    run = dict(row[0])
     return await _check_run_timeout(run)
 
 
 async def get_task_runs(task_id: str, limit: int = 50) -> list[dict]:
     db = await get_db()
-    rows = await db.execute_fetchall(
+    rows = await _fetchall(
+        db,
         "SELECT * FROM scan_runs WHERE task_id = ? ORDER BY started_at DESC LIMIT ?",
         (task_id, limit),
     )
-    return [await _check_run_timeout(dict(r)) for r in rows]
+    return [await _check_run_timeout(r) for r in rows]
 
 
 async def get_run_status(run_id: str) -> Optional[str]:
     """Lightweight single-column query returning just the run status string."""
-    conn = await get_db()
-    rows = await conn.execute_fetchall(
-        "SELECT status FROM scan_runs WHERE id = ?", (run_id,)
-    )
-    return rows[0]["status"] if rows else None
+    db = await get_db()
+    row = await _fetchone(db, "SELECT status FROM scan_runs WHERE id = ?", (run_id,))
+    return row["status"] if row else None
 
 
 async def get_recent_runs(limit: int = 20) -> list[dict]:
     db = await get_db()
-    rows = await db.execute_fetchall(
-        "SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT ?", (limit,)
-    )
-    return [await _check_run_timeout(dict(r)) for r in rows]
+    rows = await _fetchall(db, "SELECT * FROM scan_runs ORDER BY started_at DESC LIMIT ?", (limit,))
+    return [await _check_run_timeout(r) for r in rows]
 
 
 # ── Findings ─────────────────────────────────────────────────────────────
@@ -312,16 +327,17 @@ async def insert_findings(findings: list[dict]) -> None:
 
 async def get_run_findings(run_id: str) -> list[dict]:
     db = await get_db()
-    rows = await db.execute_fetchall(
+    return await _fetchall(
+        db,
         "SELECT * FROM findings WHERE run_id = ? ORDER BY severity, file_path, line_number",
         (run_id,),
     )
-    return [dict(r) for r in rows]
 
 
 async def get_findings_summary(run_id: str) -> dict:
     db = await get_db()
-    rows = await db.execute_fetchall(
+    rows = await _fetchall(
+        db,
         "SELECT category, severity, COUNT(*) as count FROM findings WHERE run_id = ? GROUP BY category, severity",
         (run_id,),
     )
@@ -343,20 +359,22 @@ async def create_notification(task_id: str, run_id: str, title: str, message: st
 async def get_notifications(limit: int = 50, unread_only: bool = False) -> list[dict]:
     db = await get_db()
     if unread_only:
-        rows = await db.execute_fetchall(
-            "SELECT * FROM notifications WHERE read = 0 ORDER BY created_at DESC LIMIT ?", (limit,)
+        return await _fetchall(
+            db,
+            "SELECT * FROM notifications WHERE read = 0 ORDER BY created_at DESC LIMIT ?",
+            (limit,),
         )
-    else:
-        rows = await db.execute_fetchall(
-            "SELECT * FROM notifications ORDER BY created_at DESC LIMIT ?", (limit,)
-        )
-    return [dict(r) for r in rows]
+    return await _fetchall(
+        db,
+        "SELECT * FROM notifications ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    )
 
 
 async def get_unread_count() -> int:
     db = await get_db()
-    rows = await db.execute_fetchall("SELECT COUNT(*) as c FROM notifications WHERE read = 0")
-    return rows[0]["c"] if rows else 0
+    row = await _fetchone(db, "SELECT COUNT(*) as c FROM notifications WHERE read = 0")
+    return row["c"] if row else 0
 
 
 async def mark_notification_read(notification_id: int) -> None:
@@ -375,15 +393,14 @@ async def mark_all_read() -> None:
 
 async def get_task_state(task_id: str) -> Optional[dict]:
     db = await get_db()
-    rows = await db.execute_fetchall("SELECT * FROM task_states WHERE task_id = ?", (task_id,))
-    return dict(rows[0]) if rows else None
+    return await _fetchone(db, "SELECT * FROM task_states WHERE task_id = ?", (task_id,))
 
 
 async def get_all_task_states() -> dict[str, dict]:
     """Get all task states as a dict keyed by task_id."""
     db = await get_db()
-    rows = await db.execute_fetchall("SELECT * FROM task_states")
-    return {r["task_id"]: dict(r) for r in rows}
+    rows = await _fetchall(db, "SELECT * FROM task_states")
+    return {r["task_id"]: r for r in rows}
 
 
 async def get_latest_runs_for_tasks(task_ids: list[str]) -> dict[str, dict]:
@@ -392,7 +409,8 @@ async def get_latest_runs_for_tasks(task_ids: list[str]) -> dict[str, dict]:
         return {}
     db = await get_db()
     placeholders = ",".join("?" for _ in task_ids)
-    rows = await db.execute_fetchall(
+    rows = await _fetchall(
+        db,
         f"SELECT * FROM scan_runs WHERE task_id IN ({placeholders}) "
         "AND status IN ('completed', 'failed', 'partial') "
         "ORDER BY started_at DESC",
@@ -402,7 +420,7 @@ async def get_latest_runs_for_tasks(task_ids: list[str]) -> dict[str, dict]:
     for r in rows:
         tid = r["task_id"]
         if tid not in result:
-            result[tid] = dict(r)
+            result[tid] = r
     return result
 
 
@@ -461,18 +479,12 @@ async def insert_benchmark_result(benchmark_id: str, model_id: str, finding_coun
 
 async def get_benchmarks(limit: int = 20) -> list[dict]:
     db = await get_db()
-    rows = await db.execute_fetchall(
-        "SELECT * FROM benchmark_runs ORDER BY started_at DESC LIMIT ?", (limit,)
-    )
-    return [dict(r) for r in rows]
+    return await _fetchall(db, "SELECT * FROM benchmark_runs ORDER BY started_at DESC LIMIT ?", (limit,))
 
 
 async def get_benchmark_results(benchmark_id: str) -> list[dict]:
     db = await get_db()
-    rows = await db.execute_fetchall(
-        "SELECT * FROM benchmark_results WHERE benchmark_id = ?", (benchmark_id,)
-    )
-    return [dict(r) for r in rows]
+    return await _fetchall(db, "SELECT * FROM benchmark_results WHERE benchmark_id = ?", (benchmark_id,))
 
 
 # ── Cleanup ──────────────────────────────────────────────────────────────
@@ -487,7 +499,7 @@ async def cleanup_old_data(days: int) -> int:
         "DELETE FROM findings WHERE run_id IN (SELECT id FROM scan_runs WHERE started_at < datetime('now', ?))",
         (f"-{days} days",),
     )
-    count = cursor.rowcount
+    count = cursor.rowcount or 0
     await db.execute("DELETE FROM scan_runs WHERE started_at < datetime('now', ?)", (f"-{days} days",))
     await db.execute("DELETE FROM notifications WHERE created_at < datetime('now', ?)", (f"-{days} days",))
     await db.execute(
@@ -506,25 +518,24 @@ async def get_open_findings(task_id: str = "", limit: int = 100) -> list[dict]:
     """Get open (non-dismissed) findings, optionally filtered by task_id."""
     db = await get_db()
     if task_id:
-        rows = await db.execute_fetchall(
+        return await _fetchall(
+            db,
             "SELECT * FROM findings WHERE task_id = ? AND status = 'open' "
             "ORDER BY severity, file_path, line_number LIMIT ?",
             (task_id, limit),
         )
-    else:
-        rows = await db.execute_fetchall(
-            "SELECT * FROM findings WHERE status = 'open' "
-            "ORDER BY severity, file_path, line_number LIMIT ?",
-            (limit,),
-        )
-    return [dict(r) for r in rows]
+    return await _fetchall(
+        db,
+        "SELECT * FROM findings WHERE status = 'open' "
+        "ORDER BY severity, file_path, line_number LIMIT ?",
+        (limit,),
+    )
 
 
 async def get_finding(finding_id: int) -> Optional[dict]:
     """Get a single finding by ID."""
     db = await get_db()
-    rows = await db.execute_fetchall("SELECT * FROM findings WHERE id = ?", (finding_id,))
-    return dict(rows[0]) if rows else None
+    return await _fetchone(db, "SELECT * FROM findings WHERE id = ?", (finding_id,))
 
 
 async def dismiss_finding(finding_id: int, reason: str = "", dismissed_by: str = "") -> bool:
@@ -585,7 +596,8 @@ async def reopen_finding(finding_id: int) -> bool:
 async def get_findings_summary_by_task(task_id: str) -> dict:
     """Get finding counts grouped by status for a task."""
     db = await get_db()
-    rows = await db.execute_fetchall(
+    rows = await _fetchall(
+        db,
         "SELECT status, COUNT(*) as count FROM findings WHERE task_id = ? GROUP BY status",
         (task_id,),
     )
@@ -602,25 +614,25 @@ async def get_findings_grouped(group_by: str = "file", task_id: str = "") -> lis
         params.append(task_id)
 
     if group_by == "file":
-        rows = await db.execute_fetchall(
+        return await _fetchall(
+            db,
             f"SELECT file_path, COUNT(*) as count, "
             f"GROUP_CONCAT(DISTINCT severity) as severities "
             f"FROM findings {where} GROUP BY file_path ORDER BY count DESC",
             params,
         )
     elif group_by == "rule":
-        rows = await db.execute_fetchall(
+        return await _fetchall(
+            db,
             f"SELECT rule_id, category, COUNT(*) as count, "
             f"GROUP_CONCAT(DISTINCT severity) as severities "
             f"FROM findings {where} GROUP BY rule_id ORDER BY count DESC",
             params,
         )
     elif group_by == "severity":
-        rows = await db.execute_fetchall(
+        return await _fetchall(
+            db,
             f"SELECT severity, COUNT(*) as count FROM findings {where} GROUP BY severity",
             params,
         )
-    else:
-        rows = []
-
-    return [dict(r) for r in rows]
+    return []
