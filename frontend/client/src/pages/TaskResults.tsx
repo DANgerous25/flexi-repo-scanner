@@ -23,14 +23,22 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { SeverityBadge, RunStatusBadge, ScanTypeBadge } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
-import { fetchTask, fetchTaskResults, fetchRunFindings, addToAllowlist, fetchFileContent, stopRun, analyzeFinding } from "@/lib/api";
+import { fetchTask, fetchTaskResults, fetchRunFindings, addToAllowlist, fetchFileContent, stopRun, analyzeFinding, refineRule, applyRuleRefinement } from "@/lib/api";
 import CodeViewer from "@/components/CodeViewer";
 import type { Task, TaskRun, Finding } from "@/lib/types";
 import {
@@ -48,6 +56,9 @@ import {
   ShieldCheck,
   StopCircle,
   Brain,
+  Filter,
+  Wrench,
+  Loader2,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -174,6 +185,11 @@ export default function TaskResults() {
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [currentAnalysisData, setCurrentAnalysisData] = useState<any>(null);
   const [currentFinding, setCurrentFinding] = useState<Finding | null>(null);
+  const [refineOpen, setRefineOpen] = useState(false);
+  const [refinePrompt, setRefinePrompt] = useState("");
+  const [refineResult, setRefineResult] = useState<any>(null);
+  const [refineLoading, setRefineLoading] = useState(false);
+  const [refineApplying, setRefineApplying] = useState(false);
   const findingsSectionRef = useRef<HTMLDivElement | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -241,6 +257,56 @@ export default function TaskResults() {
       });
     } catch (err: any) {
       setCurrentAnalysisData({ analysis: "Failed to load file context: " + err.message });
+    }
+  };
+
+  const handleRefineRule = async (finding: Finding) => {
+    if (!task || !taskId) return;
+    setCurrentFinding(finding);
+    setRefinePrompt("");
+    setRefineResult(null);
+    setRefineOpen(true);
+  };
+
+  const submitRefine = async () => {
+    if (!currentFinding || !taskId) return;
+    setRefineLoading(true);
+    try {
+      const ctx = `File: ${currentFinding.file}\nLine: ${currentFinding.line ?? "—"}\nMatched text: ${currentFinding.matched_text}\nSeverity: ${currentFinding.severity}\nRule: ${currentFinding.rule_name} (${currentFinding.rule_id})\n${currentFinding.context ? `Context:\n${currentFinding.context}` : ""}`;
+      const result = await refineRule({
+        task_id: taskId,
+        rule_id: currentFinding.rule_id,
+        finding_context: ctx,
+        prompt: refinePrompt || "Reduce false positives like this one",
+      });
+      setRefineResult(result);
+    } catch (err: any) {
+      toast({ title: "Refinement failed", description: err.message, variant: "destructive" });
+      setRefineResult({ error: err.message });
+    } finally {
+      setRefineLoading(false);
+    }
+  };
+
+  const handleApplyRefinement = async () => {
+    if (!refineResult?.parsed || !taskId) return;
+    setRefineApplying(true);
+    try {
+      const mods = refineResult.parsed.rules_to_modify ?? [];
+      const allowlist = refineResult.parsed.allowlist_to_add ?? [];
+      if (mods.length === 0 && allowlist.length === 0) {
+        toast({ title: "Nothing to apply", description: "No rule modifications or allowlist additions suggested." });
+        setRefineApplying(false);
+        return;
+      }
+      await applyRuleRefinement(taskId, mods, allowlist);
+      toast({ title: "Refinement applied", description: `${mods.length} rule(s) modified, ${allowlist.length} allowlist entry(ies) added.` });
+      queryClient.invalidateQueries({ queryKey: [`/api/tasks/${taskId}`] });
+      setRefineOpen(false);
+    } catch (err: any) {
+      toast({ title: "Failed to apply refinement", description: err.message, variant: "destructive" });
+    } finally {
+      setRefineApplying(false);
     }
   };
 
@@ -561,15 +627,28 @@ export default function TaskResults() {
                               queryClient.invalidateQueries({ queryKey: [`/api/tasks/${taskId}`] });
                             }}
                           />
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            onClick={() => handleAskLLM(finding)}
-                            title="Ask LLM to analyze this finding"
-                          >
-                            <Brain className="h-3.5 w-3.5" />
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                title="LLM actions"
+                              >
+                                <Brain className="h-3.5 w-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-52">
+                              <DropdownMenuItem onClick={() => handleAskLLM(finding)}>
+                                <Brain className="w-4 h-4 mr-2" />
+                                Analyze Finding
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleRefineRule(finding)}>
+                                <Filter className="w-4 h-4 mr-2" />
+                                Refine Rule
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </TableCell>
                       </TableRow>
                       );
@@ -635,6 +714,155 @@ export default function TaskResults() {
                   </Button>
                 )}
               </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Refine Rule Dialog */}
+      <Dialog open={refineOpen} onOpenChange={setRefineOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Filter className="w-4 h-4" />
+              Refine Rule: {currentFinding?.rule_name || currentFinding?.rule_id || "Rule"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            {currentFinding && (
+              <div className="text-xs text-muted-foreground bg-muted/50 rounded p-3 space-y-1">
+                <div><span className="font-medium">Rule:</span> {currentFinding.rule_name} ({currentFinding.rule_id})</div>
+                <div><span className="font-medium">File:</span> {currentFinding.file}:{currentFinding.line ?? "—"}</div>
+                <div><span className="font-medium">Matched:</span> <code className="text-amber-400/90">{currentFinding.matched_text}</code></div>
+              </div>
+            )}
+
+            {refineResult?.current_rule && (
+              <div className="text-xs border rounded p-3 space-y-1">
+                <p className="font-medium text-muted-foreground mb-1">Current Rule</p>
+                <div><span className="text-muted-foreground">Pattern:</span> <code className="text-cyan-400 font-code">{refineResult.current_rule.pattern}</code></div>
+                {refineResult.current_rule.context_requires && (
+                  <div><span className="text-muted-foreground">Context requires:</span> <code className="text-cyan-400 font-code">{refineResult.current_rule.context_requires}</code></div>
+                )}
+                <div><span className="text-muted-foreground">Severity:</span> {refineResult.current_rule.severity}</div>
+              </div>
+            )}
+
+            {!refineResult && (
+              <>
+                <Textarea
+                  value={refinePrompt}
+                  onChange={(e) => setRefinePrompt(e.target.value)}
+                  placeholder={'e.g. "Don\'t match version numbers like 10.13.0" or "Add context_requires to filter out non-networking IPs"'}
+                  className="min-h-[80px] text-sm"
+                  disabled={refineLoading}
+                />
+                <Button
+                  onClick={submitRefine}
+                  disabled={refineLoading}
+                  className="w-full"
+                >
+                  {refineLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Getting LLM suggestions...
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="w-4 h-4 mr-2" />
+                      Suggest Refinements
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
+
+            {refineResult && !refineResult.error && (
+              <>
+                <div className="text-sm whitespace-pre-wrap font-light leading-relaxed border-l-2 border-cyan-500/50 pl-4 py-2 bg-cyan-500/5 rounded">
+                  {refineResult.suggestions}
+                </div>
+
+                {(refineResult.parsed?.rules_to_modify?.length > 0 || refineResult.parsed?.allowlist_to_add?.length > 0) && (
+                  <div className="border rounded p-3 space-y-2">
+                    <p className="text-xs font-semibold text-foreground">Structured Changes</p>
+                    {refineResult.parsed.rules_to_modify?.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">Rule modifications: {refineResult.parsed.rules_to_modify.length}</p>
+                        {refineResult.parsed.rules_to_modify.map((mod: any, i: number) => (
+                          <div key={i} className="text-xs bg-muted/50 rounded px-2 py-1 font-code">
+                            {mod.id}: {Object.entries(mod.changes || {}).map(([k, v]) => `${k}=${String(v)}`).join(", ")}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {refineResult.parsed.allowlist_to_add?.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">Allowlist additions: {refineResult.parsed.allowlist_to_add.length}</p>
+                        {refineResult.parsed.allowlist_to_add.map((entry: any, i: number) => (
+                          <div key={i} className="text-xs bg-muted/50 rounded px-2 py-1">
+                            {entry.reason || entry.match || entry.file || JSON.stringify(entry)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(refineResult.suggestions);
+                      toast({ title: "Copied suggestions to clipboard" });
+                    }}
+                  >
+                    <ClipboardCopy className="w-3.5 h-3.5 mr-1.5" />
+                    Copy
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setRefineResult(null);
+                      setRefinePrompt("");
+                    }}
+                    disabled={refineLoading}
+                  >
+                    Try Again
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleApplyRefinement}
+                    disabled={refineApplying || (!refineResult.parsed?.rules_to_modify?.length && !refineResult.parsed?.allowlist_to_add?.length)}
+                  >
+                    {refineApplying ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                        Applying...
+                      </>
+                    ) : (
+                      <>
+                        <Wrench className="w-3.5 h-3.5 mr-1.5" />
+                        Apply Changes
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {refineResult?.error && (
+              <div className="text-sm text-red-400 border-l-2 border-red-500/50 pl-4 py-2 bg-red-500/5 rounded">
+                {refineResult.error}
+              </div>
+            )}
+
+            {refineResult && (
+              <p className="text-[10px] text-muted-foreground">
+                Model: {refineResult.model || "unknown"} | Tokens: {refineResult.tokens?.input ?? 0} in / {refineResult.tokens?.output ?? 0} out
+              </p>
             )}
           </div>
         </DialogContent>

@@ -386,3 +386,40 @@ export async function requestFixForFinding(findingId: number): Promise<{ message
 export async function markFindingFixed(findingId: number): Promise<{ message: string }> {
   return post<{ message: string }>(`/api/results/findings/${findingId}/mark-fixed`);
 }
+
+export async function refineRule(data: {
+  task_id: string;
+  rule_id: string;
+  finding_context?: string;
+  prompt?: string;
+}): Promise<{
+  suggestions: string;
+  parsed: {
+    rules_to_modify?: Array<{ id: string; changes: Record<string, unknown> }>;
+    allowlist_to_add?: Array<Record<string, unknown>>;
+    raw?: string;
+  };
+  model: string;
+  tokens: { input: number; output: number };
+  current_rule: {
+    id: string;
+    name: string;
+    pattern: string;
+    severity: string;
+    case_sensitive?: boolean;
+    context_requires?: string;
+  };
+}> {
+  return post("/api/results/refine-rule", data);
+}
+
+export async function applyRuleRefinement(
+  taskId: string,
+  modifications: Array<{ id: string; changes: Record<string, unknown> }>,
+  allowlistAdditions: Array<Record<string, unknown>>,
+): Promise<{ message: string; rules_modified: number; allowlist_added: number }> {
+  return post(`/api/results/apply-rule-refinement?task_id=${encodeURIComponent(taskId)}`, {
+    modifications,
+    allowlist_additions: allowlistAdditions,
+  });
+}
