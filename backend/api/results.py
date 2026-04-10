@@ -506,6 +506,11 @@ async def bulk_suppress(req: BulkSuppressRequest):
     if not isinstance(items, list):
         raise HTTPException(400, "Expected a JSON array")
 
+    recent_runs = await db.get_task_runs(req.task_id, limit=1)
+    all_findings = []
+    if recent_runs:
+        all_findings = await db.get_run_findings(recent_runs[0]["id"])
+
     from backend.config import AllowlistEntry
 
     allowlist_added = 0
@@ -522,26 +527,34 @@ async def bulk_suppress(req: BulkSuppressRequest):
         index = item.get("index", i + 1)
         reason = item.get("reason", "")
 
+        finding = None
+        if isinstance(index, int) and 1 <= index <= len(all_findings):
+            finding = all_findings[index - 1]
+
         if action == "suppress":
             scope = item.get("suppress_scope", "match")
             entry_data: dict = {"reason": reason or f"Suppressed by LLM review (finding #{index})"}
 
             if scope == "file":
-                entry_data["file"] = item.get("suppress_file", "")
+                entry_data["file"] = item.get("suppress_file") or (finding["file_path"] if finding else "")
                 if item.get("suppress_rules"):
                     entry_data["rules"] = item["suppress_rules"]
+                elif finding:
+                    entry_data["rules"] = [finding["rule_id"]]
             elif scope == "rule":
-                entry_data["rules"] = item.get("suppress_rules", [])
+                entry_data["rules"] = item.get("suppress_rules") or ([finding["rule_id"]] if finding else [])
             else:
-                entry_data["match"] = item.get("suppress_match", "")
+                entry_data["match"] = item.get("suppress_match") or (finding["matched_text"] if finding else "")
                 if item.get("suppress_rules"):
                     entry_data["rules"] = item["suppress_rules"]
+                elif finding:
+                    entry_data["rules"] = [finding["rule_id"]]
 
             task.scan.allowlist.append(AllowlistEntry(**entry_data))
             allowlist_added += 1
 
         elif action == "refine_rule":
-            rule_id = item.get("rule_id", "")
+            rule_id = item.get("rule_id") or (finding["rule_id"] if finding else "")
             changes = {}
             if item.get("suggested_pattern"):
                 changes["pattern"] = item["suggested_pattern"]
