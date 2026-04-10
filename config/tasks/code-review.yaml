@@ -32,438 +32,70 @@ scan:
     max_files_per_run: 30
     prompt: ''
   allowlist:
-  - match: Use a distributed cache (e.g., Redis) for rate limiting, or document that
-      this is only safe for single-process dev/test. Add periodic cleanup for old
-      entries.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider making allowed events configurable via admin API or config file.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Wrap get_dashboard in try/except and return a 500 with a user-friendly
-      message.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Add pagination (limit/offset) to the endpoint.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider optimizing with fewer queries or materialized views if performance
-      becomes an issue.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Refactor base_filter/day_filter into a shared utility function.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider using a scheduler library (e.g., APScheduler) for more robust
-      periodic tasks.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider adding indexes on category and tab if those queries are slow.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Clarify in the docstring or change the query to order by ascending timestamp
-      if oldest-first is desired.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Validate that timestamp is always set, or filter out logs with missing
-      timestamps.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Add tests for these edge cases to ensure robustness.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Document or handle cases where the user is not found or is inactive.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Remove the fallback or raise if the key is missing to catch unexpected
-      values early.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: If the adapter supports batch price fetching, use it to reduce latency
-      and API load.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Log a warning or error if all prices are None to aid debugging.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Use SQLAlchemy's text() with parameters for all variables, and avoid f-string
-      interpolation for SQL identifiers.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Refactor into a helper function to reduce code duplication and improve
-      maintainability.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Allow the client to specify a limit, or implement pagination for large
-      logs.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider running the queries in parallel if the DB and driver support it,
-      or reduce the count if not needed.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Aggregate and surface error messages for all failed models in the response.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Document this behavior and consider sequential execution for probes that
-      may interfere with each other.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: For production, use a distributed rate limiter (e.g., Redis) to enforce
-      limits across all processes.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Wrap resp.json() in a try/except and handle non-JSON responses gracefully.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Optimize by batching DB queries or caching user settings within the request.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: For non-OpenRouter providers, return the correct model list in the response.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Refactor into smaller helper functions for each provider and mode to improve
-      readability.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: For high-traffic deployments, consider a distributed cache (e.g., Redis)
-      for better cache hit rates.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Warn the user if the models list is empty after a successful connection.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Ensure CostTracker returns usage only for the requesting user.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider using a distributed cache (e.g., Redis) for better efficiency
-      at scale.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Catch exceptions and return a 404 or 400 error with a helpful message.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider making rounding configurable or asset-type aware.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Wrap DB operations in try/except and return appropriate HTTP errors. Validate
-      input before applying changes.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: No change needed unless settings table grows unexpectedly.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider using PATCH for partial updates, or document clearly that PUT
-      is partial in this API.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Clarify and document which Bearer tokens are exempt. Consider skipping
-      CSRF for all Bearer tokens, or explicitly check for all valid API key prefixes.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Log CSRF failures with request details (excluding sensitive info) for audit
-      purposes.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Monitor connection churn; if high, consider connection pooling or persistent
-      connections.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Refactor migration logic to reduce duplication, e.g., by defining columns
-      and iterating over them.
-    reason: Suppressed via LLM bulk review
+  - file: backend/analytics/models.py
     rules:
     - llm-review
-  - match: Check for the presence of 'sub' in the payload and raise a 401 with a clear
-      message if missing.
     reason: Suppressed via LLM bulk review
+  - file: backend/api/admin.py
     rules:
     - llm-review
-  - match: Consider batching or rate-limiting last_used_at updates, or making them
-      asynchronous if high-frequency API key usage is expected.
     reason: Suppressed via LLM bulk review
+  - file: backend/api/backtest.py
     rules:
     - llm-review
-  - match: Document this behavior clearly, or allow configuration per role if needed.
     reason: Suppressed via LLM bulk review
+  - file: backend/api/diagnostics.py
     rules:
     - llm-review
-  - match: Add tests for all error paths, including missing/invalid tokens, missing
-      settings, and migration failures.
     reason: Suppressed via LLM bulk review
+  - file: backend/api/feedback.py
     rules:
     - llm-review
-  - match: Validate email addresses before attempting to send emails, or rely on upstream
-      validation.
     reason: Suppressed via LLM bulk review
+  - file: backend/api/llm.py
     rules:
     - llm-review
-  - match: Sanitize error messages before raising or logging, and consider returning
-      a generic error to the caller.
     reason: Suppressed via LLM bulk review
+  - file: backend/api/market.py
     rules:
     - llm-review
-  - match: Consider using a shared AsyncClient instance if sending many emails in
-      a short period.
     reason: Suppressed via LLM bulk review
+  - file: backend/auth/csrf.py
     rules:
     - llm-review
-  - match: Consider renaming the column if possible, or document this quirk clearly.
     reason: Suppressed via LLM bulk review
+  - file: backend/auth/db.py
     rules:
     - llm-review
-  - match: Consider lazy-loading or synchronizing access if running in multi-worker
-      environments.
     reason: Suppressed via LLM bulk review
+  - file: backend/auth/email.py
     rules:
     - llm-review
-  - match: Remove or comment out unreachable code after the HTTPException.
     reason: Suppressed via LLM bulk review
+  - file: backend/auth/router.py
     rules:
     - llm-review
-  - match: Consider always returning a generic error for invalid/expired/used tokens
-      to avoid account enumeration.
     reason: Suppressed via LLM bulk review
+  - file: backend/auth/schemas.py
     rules:
     - llm-review
-  - match: Normalize all datetimes to UTC and ensure tzinfo is always set. Simplify
-      the expiration check.
     reason: Suppressed via LLM bulk review
+  - file: backend/auth/security.py
     rules:
     - llm-review
-  - match: If not already handled by AuthSessionLocal, ensure session pooling is used.
     reason: Suppressed via LLM bulk review
+  - file: backend/auth/service.py
     rules:
     - llm-review
-  - match: Standardize on returning Pydantic models for all endpoints.
     reason: Suppressed via LLM bulk review
+  - file: backend/config.py
     rules:
     - llm-review
-  - match: Consider monitoring/logging for repeated failures to alert admins.
     reason: Suppressed via LLM bulk review
+  - file: backend/dependencies.py
     rules:
     - llm-review
-  - match: Add tests or checks to ensure all relevant tables are covered, and document
-      the maintenance burden.
     reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider enforcing stronger password policies (e.g., require numbers, symbols,
-      etc.).
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Add tests for rate limit enforcement, expired/used invites, and verification
-      code expiry.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Use EmailStr for all email fields in schemas for better validation.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Ensure defaults are defined in one place (preferably the schema for API-facing
-      defaults).
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Allow configuration of bcrypt.gensalt(rounds=...) via settings or at least
-      document the default.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: 'Convert ''iat'' and ''exp'' to int timestamps: int(datetime.now(timezone.utc).timestamp())'
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Ensure all callers handle jwt.InvalidTokenError and add explicit test coverage
-      for invalid/expired tokens.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Reuse the same session for both lookup and update, or use a transaction
-      to ensure atomicity.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Clarify intended session invalidation policy. If multi-device login is
-      allowed, consider a different approach.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Add password strength and display_name validation before creating the user.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider using custom exception types for different error cases (e.g.,
-      InviteExpired, EmailTaken) for better error reporting.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Optionally check for existing unused invites for the same email/group and
-      reuse or invalidate them.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Document the API key format and consider making the prefix configurable
-      via settings.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider raising an exception or failing fast if admin bootstrap is required
-      but credentials are missing.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider using the full timestamp (YYYYMMDD_HHMMSS) for more precise age
-      calculation, or check the actual file creation time if available.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Add more robust parsing and logging for unexpected lines in the S3 listing.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider sleeping in shorter intervals and checking for cancellation or
-      shutdown signals.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Document this behavior clearly. If hot-reloading is desired, remove the
-      cache.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Validate the URL scheme and raise a clear error if it is not supported.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: This is generally safe, but document the behavior and ensure all consumers
-      use 'async with' or proper dependency injection.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Document this pattern and ensure no circular dependencies exist.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Add tests for password edge cases, JWT expiry, invalid tokens, and error
-      handling.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Add tests for all business logic, including edge cases (e.g., expired invites,
-      duplicate emails, weak passwords, admin bootstrap with/without env vars).
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Add integration tests or mocks for backup scheduling, error handling, and
-      S3 interactions.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Use SQLAlchemy's Boolean type for has_guidance, and ensure the database
-      column is BOOLEAN or equivalent.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Log exceptions when migrations fail, so issues are visible in logs.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Check the source and use the appropriate checked_at field for staleness.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Ensure Pydantic models use Optional[...] for nullable fields for accurate
-      OpenAPI docs.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider caching CIK lookups per ticker to reduce redundant network calls.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Ensure filings are sorted by date descending, or use continue instead of
-      break if not guaranteed.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider logging a warning if the filing_date cannot be extracted for traceability.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider explicitly setting source and earnings_date to None if no data
-      is found, to avoid stale data.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Invalidate the cache only if the underlying raw_sentence or edgar_checked_at
-      has changed, not just based on time.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Document this behavior and ensure it's only called in a running event loop
-      context.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Log a warning if Finnhub returns a past date, as this may indicate an API
-      or data issue.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Consider reducing timeouts or making them configurable for better responsiveness.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - match: Add tests for these edge cases to ensure robust error handling and correct
-      fallback behavior.
-    reason: Suppressed via LLM bulk review
-    rules:
-    - llm-review
-  - file: backend/analytics/admin_router.py
-    reason: Admin auth applied at router-include level
-    rules:
-    - llm-review
   context_filters: []
   recipes: []
   ast_rules: []

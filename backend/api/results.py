@@ -541,20 +541,26 @@ async def bulk_suppress(req: BulkSuppressRequest):
             scope = item.get("suppress_scope", "match")
             entry_data: dict = {"reason": reason or f"Suppressed by LLM review (finding #{index})"}
 
-            if scope == "file":
-                entry_data["file"] = item.get("suppress_file") or (finding["file_path"] if finding else "")
+            rule_id = finding.get("rule_id", "") if finding else ""
+
+            if rule_id == "llm-review":
+                scope = "file"
+                entry_data["file"] = finding.get("file_path", "") if finding else ""
+                entry_data["rules"] = ["llm-review"]
+            elif scope == "file":
+                entry_data["file"] = item.get("suppress_file") or (finding.get("file_path") if finding else "")
                 if item.get("suppress_rules"):
                     entry_data["rules"] = item["suppress_rules"]
                 elif finding:
-                    entry_data["rules"] = [finding["rule_id"]]
+                    entry_data["rules"] = [rule_id]
             elif scope == "rule":
-                entry_data["rules"] = item.get("suppress_rules") or ([finding["rule_id"]] if finding else [])
+                entry_data["rules"] = item.get("suppress_rules") or ([rule_id] if rule_id else [])
             else:
-                entry_data["match"] = item.get("suppress_match") or (finding["matched_text"] if finding else "")
+                entry_data["match"] = item.get("suppress_match") or (finding.get("matched_text") if finding else "")
                 if item.get("suppress_rules"):
                     entry_data["rules"] = item["suppress_rules"]
                 elif finding:
-                    entry_data["rules"] = [finding["rule_id"]]
+                    entry_data["rules"] = [rule_id]
 
             task.scan.allowlist.append(AllowlistEntry(**entry_data))
             allowlist_added += 1
