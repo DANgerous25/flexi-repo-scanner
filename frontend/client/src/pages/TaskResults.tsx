@@ -35,18 +35,40 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { SeverityBadge, RunStatusBadge, ScanTypeBadge } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
-import { fetchTask, fetchTaskResults, fetchRunFindings, addToAllowlist, fetchFileContent, stopRun, analyzeFinding, refineRule, applyRuleRefinement } from "@/lib/api";
-import CodeViewer from "@/components/CodeViewer";
-import type { Task, TaskRun, Finding } from "@/lib/types";
 import {
-  Download,
+  fetchTask,
+  fetchTaskResults,
+  fetchRunFindings,
+  addToAllowlist,
+  fetchFileContent,
+  stopRun,
+  deleteRun,
+  deleteAllTaskRuns,
+  analyzeFinding,
+  refineRule,
+  applyRuleRefinement,
+  dismissFinding,
+} from "@/lib/api";
+import CodeViewer from "@/components/CodeViewer";
+import type { Task, TaskRun, Finding, AllowlistEntry } from "@/lib/types";
+import {
   FileJson,
   FileSpreadsheet,
   ArrowLeft,
-  Clock,
   FileSearch,
   ChevronRight,
   AlertTriangle,
@@ -59,6 +81,9 @@ import {
   Filter,
   Wrench,
   Loader2,
+  Trash2,
+  Info,
+  EyeOff,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -76,65 +101,51 @@ function safeRelative(dateStr: string | undefined): string {
 
 function formatFindingsForLLM(task: Task, run: TaskRun, findings: Finding[]): string {
   const lines: string[] = [];
+  const openFindings = findings.filter((f) => !f.status || f.status === "open");
 
-  lines.push("# Scan Findings — Review & Fix Suggestions Needed");
+  lines.push(`# Code Review Request — ${task.name}`);
   lines.push("");
-  lines.push("## Instructions");
-  lines.push("");
-  lines.push("Below are automated scan findings from a repository code scanner. For each finding:");
-  lines.push("");
-  lines.push("1. **Evaluate** whether it is a true positive or a false positive (explain your reasoning)");
-  lines.push("2. **Classify** the risk level: `critical` / `high` / `medium` / `low` / `false-positive`");
-  lines.push("3. **Suggest a fix** with the exact code change needed (show before/after), or explain why no fix is needed");
-  lines.push("4. **Do NOT apply any changes** — present your analysis and wait for approval before proceeding");
-  lines.push("");
-  lines.push("## Context");
-  lines.push("");
-  lines.push(`- **Task:** ${task.name}`);
-  lines.push(`- **Repository:** ${task.connection}`);
-  lines.push(`- **Scan type:** ${task.scan?.type ?? "pattern"}`);
-  lines.push(`- **Scan mode:** ${run.scan_mode ?? "full"}`);
-  lines.push(`- **Run date:** ${run.started_at ?? "unknown"}`);
-  lines.push(`- **Total findings:** ${findings.length}`);
+  lines.push(`Repository: ${task.connection}`);
+  lines.push(`Scan type: ${task.scan?.type ?? "pattern"} | Run: ${safeFormat(run.started_at, "yyyy-MM-dd HH:mm")}`);
+  lines.push(`Total findings: ${openFindings.length}`);
   lines.push("");
 
-  // Group by category
-  const byCategory: Record<string, Finding[]> = {};
-  findings.forEach((f) => {
-    const cat = f.category || "Uncategorised";
-    if (!byCategory[cat]) byCategory[cat] = [];
-    byCategory[cat].push(f);
-  });
+  if (task.scan?.allowlist?.length) {
+    lines.push("## Suppressed Rules (already allowlisted — skip these patterns)");
+    lines.push("");
+    for (const entry of task.scan.allowlist) {
+      const scope = entry.file ? `file=${entry.file}` : entry.match ? `match="${entry.match}"` : entry.pattern ? `pattern=${entry.pattern}` : `rules=${(entry.rules || []).join(",")}`;
+      lines.push(`- ${scope} — ${entry.reason || "no reason"}`);
+    }
+    lines.push("");
+  }
 
   lines.push("## Findings");
   lines.push("");
 
-  let idx = 1;
-  for (const [category, items] of Object.entries(byCategory).sort()) {
-    lines.push(`### ${category} (${items.length})`);
-    lines.push("");
+  const bySeverity: Record<string, Finding[]> = {};
+  for (const f of openFindings) {
+    const key = f.severity || "medium";
+    if (!bySeverity[key]) bySeverity[key] = [];
+    bySeverity[key].push(f);
+  }
 
+  const severityOrder = ["critical", "high", "medium", "low", "info"];
+  for (const sev of severityOrder) {
+    const items = bySeverity[sev];
+    if (!items?.length) continue;
+    lines.push(`### ${sev.toUpperCase()} (${items.length})`);
+    lines.push("");
+    let idx = 1;
     for (const f of items) {
-      lines.push(`#### Finding ${idx}`);
-      lines.push("");
-      lines.push(`| Field | Value |`);
-      lines.push(`|-------|-------|`);
-      lines.push(`| **File** | \`${f.file}\` |`);
-      lines.push(`| **Line** | ${f.line ?? "—"} |`);
-      lines.push(`| **Severity** | ${f.severity} |`);
-      lines.push(`| **Rule** | ${f.rule_name || f.rule_id || "—"} |`);
-      if (f.matched_text) {
-        lines.push(`| **Matched text** | \`${f.matched_text}\` |`);
-      }
+      lines.push(`**${idx}. ${f.rule_name || f.rule_id}** — \`${f.file}:${f.line ?? "—"}\``);
+      lines.push(`   Matched: \`${f.matched_text}\``);
       if (f.context) {
-        lines.push("");
-        lines.push("<details><summary>Context</summary>");
-        lines.push("");
+        const ctxLines = f.context.split("\n").slice(0, 5).join("\n");
+        lines.push(`   Context:`);
         lines.push("```");
-        lines.push(f.context);
+        lines.push(ctxLines);
         lines.push("```");
-        lines.push("");
-        lines.push("</details>");
       }
       lines.push("");
       idx++;
@@ -142,27 +153,7 @@ function formatFindingsForLLM(task: Task, run: TaskRun, findings: Finding[]): st
   }
 
   lines.push("---");
-  lines.push("");
-  lines.push("## Expected Output Format");
-  lines.push("");
-  lines.push("For each finding, respond with:");
-  lines.push("");
-  lines.push("```");
-  lines.push("### Finding N — [true-positive | false-positive]");
-  lines.push("**Risk:** critical / high / medium / low / false-positive");
-  lines.push("**Reasoning:** Why this is or isn't an issue.");
-  lines.push("**Suggested fix:**");
-  lines.push("- File: `path/to/file`");
-  lines.push("- Before: `matched text or line`");
-  lines.push("- After: `replacement text or line`");
-  lines.push("```");
-  lines.push("");
-  lines.push("After listing all evaluations, provide a **Summary** with:");
-  lines.push("- Count of true positives vs false positives");
-  lines.push("- Prioritised list of fixes (critical first)");
-  lines.push("- Any patterns suggesting rule adjustments");
-  lines.push("");
-  lines.push("**Wait for my approval before applying any changes.**");
+  lines.push("For each finding: is it a true positive worth fixing? If so, what is the specific fix? If it is a false positive or low priority, explain why.");
 
   return lines.join("\n");
 }
@@ -190,6 +181,14 @@ export default function TaskResults() {
   const [refineResult, setRefineResult] = useState<any>(null);
   const [refineLoading, setRefineLoading] = useState(false);
   const [refineApplying, setRefineApplying] = useState(false);
+  const [showSuppressed, setShowSuppressed] = useState(false);
+  const [suppressedInfoOpen, setSuppressedInfoOpen] = useState(false);
+  const [suppressedInfoFinding, setSuppressedInfoFinding] = useState<Finding | null>(null);
+  const [suppressedAnalysis, setSuppressedAnalysis] = useState<any>(null);
+  const [suppressedAnalysisLoading, setSuppressedAnalysisLoading] = useState(false);
+  const [deleteRunAlertOpen, setDeleteRunAlertOpen] = useState(false);
+  const [deleteRunTarget, setDeleteRunTarget] = useState<string | null>(null);
+  const [deleteAllAlertOpen, setDeleteAllAlertOpen] = useState(false);
   const findingsSectionRef = useRef<HTMLDivElement | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -226,6 +225,10 @@ export default function TaskResults() {
     enabled: !!selectedRun?.id,
   });
 
+  const openFindings = findings.filter((f) => !f.status || f.status === "open");
+  const suppressedFindings = findings.filter((f) => f.status === "dismissed");
+  const displayedFindings = showSuppressed ? findings : openFindings;
+
   useEffect(() => {
     if (selectedRun?.id) {
       findingsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -233,9 +236,9 @@ export default function TaskResults() {
   }, [selectedRun?.id]);
 
   const groupedFindings = (() => {
-    if (groupBy === "none") return { "All Findings": findings };
-    const groups: Record<string, typeof findings> = {};
-    findings.forEach((f) => {
+    if (groupBy === "none") return { "All Findings": displayedFindings };
+    const groups: Record<string, typeof displayedFindings> = {};
+    displayedFindings.forEach((f) => {
       const key = groupBy === "category" ? f.category : f.severity;
       if (!groups[key]) groups[key] = [];
       groups[key].push(f);
@@ -308,6 +311,70 @@ export default function TaskResults() {
     } finally {
       setRefineApplying(false);
     }
+  };
+
+  const handleDeleteRun = async (runId: string) => {
+    try {
+      await deleteRun(runId);
+      toast({ title: "Run deleted" });
+      if (selectedRunId === runId) setSelectedRunId(null);
+      queryClient.invalidateQueries({ queryKey: [`/api/tasks/${taskId}/results`] });
+    } catch (err: any) {
+      toast({ title: "Failed to delete run", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleDeleteAllRuns = async () => {
+    if (!taskId) return;
+    try {
+      const result = await deleteAllTaskRuns(taskId);
+      toast({ title: "All runs deleted", description: `${result.deleted_count} runs removed` });
+      setSelectedRunId(null);
+      queryClient.invalidateQueries({ queryKey: [`/api/tasks/${taskId}/results`] });
+    } catch (err: any) {
+      toast({ title: "Failed to delete runs", description: err.message, variant: "destructive" });
+    }
+    setDeleteAllAlertOpen(false);
+  };
+
+  const handleSuppressedInfo = (finding: Finding) => {
+    setSuppressedInfoFinding(finding);
+    setSuppressedAnalysis(null);
+    setSuppressedInfoOpen(true);
+  };
+
+  const handleSuppressedLLMExplain = async () => {
+    if (!suppressedInfoFinding || !task) return;
+    setSuppressedAnalysisLoading(true);
+    try {
+      const fileRes = await fetchFileContent(task.connection, suppressedInfoFinding.file);
+      const result = await analyzeFinding({
+        finding: suppressedInfoFinding,
+        file_content: fileRes.content,
+        task_id: taskId || "",
+      });
+      setSuppressedAnalysis(result);
+    } catch (err: any) {
+      setSuppressedAnalysis({ analysis: "Error: " + err.message });
+    } finally {
+      setSuppressedAnalysisLoading(false);
+    }
+  };
+
+  const getAllowlistMatchForFinding = (finding: Finding): AllowlistEntry | null => {
+    if (!task?.scan?.allowlist) return null;
+    for (const entry of task.scan.allowlist) {
+      if (entry.rules?.length && !entry.file && !entry.match && !entry.pattern) {
+        if (entry.rules.includes(finding.rule_id)) return entry;
+      }
+      if (entry.file && (finding.file.endsWith(entry.file) || finding.file === entry.file)) {
+        if (!entry.rules?.length || entry.rules.includes(finding.rule_id)) return entry;
+      }
+      if (entry.match && finding.matched_text.includes(entry.match)) {
+        if (!entry.rules?.length || entry.rules.includes(finding.rule_id)) return entry;
+      }
+    }
+    return null;
   };
 
   if (taskLoading || runsLoading) {
@@ -386,72 +453,26 @@ export default function TaskResults() {
               {stopping ? "Stopping…" : "Stop Run"}
             </Button>
           )}
-          {selectedRun && findings.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              className={`h-8 text-xs gap-1.5 transition-colors ${
-                copied ? "border-emerald-500/50 text-emerald-400" : ""
-              }`}
-              data-testid="button-copy-llm"
-              onClick={() => {
-                const md = formatFindingsForLLM(task, selectedRun, findings);
-                navigator.clipboard.writeText(md).then(() => {
-                  setCopied(true);
-                  toast({ title: "Copied to clipboard", description: `${findings.length} findings formatted for LLM review` });
-                  setTimeout(() => setCopied(false), 2500);
-                });
-              }}
-            >
-              {copied ? (
-                <Check className="w-3.5 h-3.5" />
-              ) : (
-                <ClipboardCopy className="w-3.5 h-3.5" />
-              )}
-              {copied ? "Copied" : "Copy for LLM"}
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs gap-1.5"
-            data-testid="button-export-json"
-            disabled={!selectedRun}
-            onClick={() => {
-              if (selectedRun) {
-                const a = document.createElement("a");
-                a.href = `/api/results/${encodeURIComponent(selectedRun.id)}/export/json`;
-                a.download = `findings-${selectedRun.id}.json`;
-                a.click();
-              }
-            }}
-          >
-            <FileJson className="w-3.5 h-3.5" /> JSON
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs gap-1.5"
-            data-testid="button-export-csv"
-            disabled={!selectedRun}
-            onClick={() => {
-              if (selectedRun) {
-                const a = document.createElement("a");
-                a.href = `/api/results/${encodeURIComponent(selectedRun.id)}/export/csv`;
-                a.download = `findings-${selectedRun.id}.csv`;
-                a.click();
-              }
-            }}
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" /> CSV
-          </Button>
         </div>
       </div>
 
       {/* Run History */}
       <Card className="bg-card border-card-border">
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold">Run History</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold">Run History</CardTitle>
+            {runs.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                onClick={() => setDeleteAllAlertOpen(true)}
+              >
+                <Trash2 className="w-3 h-3" />
+                Delete All
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <Table>
           <TableHeader>
@@ -461,7 +482,7 @@ export default function TaskResults() {
               <TableHead className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Status</TableHead>
               <TableHead className="text-xs text-muted-foreground font-medium uppercase tracking-wider text-right">Findings</TableHead>
               <TableHead className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Mode</TableHead>
-              <TableHead className="w-8" />
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -507,7 +528,21 @@ export default function TaskResults() {
                     <span className="text-xs text-muted-foreground capitalize">{run.scan_mode}</span>
                   </TableCell>
                   <TableCell>
-                    <ChevronRight className={`w-4 h-4 transition-colors ${selectedRun?.id === run.id ? "text-primary" : "text-muted-foreground/30"}`} />
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-muted-foreground hover:text-red-400"
+                        title="Delete run"
+                        onClick={() => {
+                          setDeleteRunTarget(run.id);
+                          setDeleteRunAlertOpen(true);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <ChevronRight className={`w-4 h-4 transition-colors ${selectedRun?.id === run.id ? "text-primary" : "text-muted-foreground/30"}`} />
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -515,6 +550,52 @@ export default function TaskResults() {
           </TableBody>
         </Table>
       </Card>
+
+      {/* Delete single run confirmation */}
+      <AlertDialog open={deleteRunAlertOpen} onOpenChange={setDeleteRunAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this run?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this run and all its findings. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteRunTarget(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => {
+                if (deleteRunTarget) handleDeleteRun(deleteRunTarget);
+                setDeleteRunTarget(null);
+                setDeleteRunAlertOpen(false);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete all runs confirmation */}
+      <AlertDialog open={deleteAllAlertOpen} onOpenChange={setDeleteAllAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete all runs?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete all {runs.length} run(s) and their findings for this task. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={handleDeleteAllRuns}
+            >
+              Delete All
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Findings Detail */}
       {selectedRun && (
@@ -525,26 +606,93 @@ export default function TaskResults() {
                 <CardTitle className="text-sm font-semibold">
                   Findings — {safeFormat(selectedRun.started_at, "MMM d, HH:mm")}
                 </CardTitle>
-                <Badge variant="outline" className="text-xs">{findings.length} findings</Badge>
+                <Badge variant="outline" className="text-xs">{openFindings.length} open</Badge>
+                {suppressedFindings.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={showSuppressed}
+                      onCheckedChange={setShowSuppressed}
+                      className="h-4 w-7 data-[state=checked]:bg-amber-500"
+                    />
+                    <span className="text-[11px] text-muted-foreground">
+                      Show suppressed ({suppressedFindings.length})
+                    </span>
+                  </div>
+                )}
               </div>
-              <Select value={groupBy} onValueChange={(v: any) => setGroupBy(v)}>
-                <SelectTrigger className="w-40 h-8 text-xs bg-background border-border" data-testid="select-group-by">
-                  <SelectValue placeholder="Group by" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No grouping</SelectItem>
-                  <SelectItem value="category">By Category</SelectItem>
-                  <SelectItem value="severity">By Severity</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2">
+                {openFindings.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={`h-7 text-xs gap-1.5 transition-colors ${
+                      copied ? "border-emerald-500/50 text-emerald-400" : ""
+                    }`}
+                    data-testid="button-copy-llm"
+                    onClick={() => {
+                      const md = formatFindingsForLLM(task, selectedRun, findings);
+                      navigator.clipboard.writeText(md).then(() => {
+                        setCopied(true);
+                        toast({ title: "Copied to clipboard", description: `${openFindings.length} findings formatted for LLM review` });
+                        setTimeout(() => setCopied(false), 2500);
+                      });
+                    }}
+                  >
+                    {copied ? (
+                      <Check className="w-3 h-3" />
+                    ) : (
+                      <ClipboardCopy className="w-3 h-3" />
+                    )}
+                    {copied ? "Copied" : "Copy for LLM"}
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1.5"
+                  data-testid="button-export-json"
+                  onClick={() => {
+                    const a = document.createElement("a");
+                    a.href = `/api/results/${encodeURIComponent(selectedRun.id)}/export/json`;
+                    a.download = `findings-${selectedRun.id}.json`;
+                    a.click();
+                  }}
+                >
+                  <FileJson className="w-3 h-3" /> JSON
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1.5"
+                  data-testid="button-export-csv"
+                  onClick={() => {
+                    const a = document.createElement("a");
+                    a.href = `/api/results/${encodeURIComponent(selectedRun.id)}/export/csv`;
+                    a.download = `findings-${selectedRun.id}.csv`;
+                    a.click();
+                  }}
+                >
+                  <FileSpreadsheet className="w-3 h-3" /> CSV
+                </Button>
+                <Select value={groupBy} onValueChange={(v: any) => setGroupBy(v)}>
+                  <SelectTrigger className="w-36 h-7 text-xs bg-background border-border" data-testid="select-group-by">
+                    <SelectValue placeholder="Group by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No grouping</SelectItem>
+                    <SelectItem value="category">By Category</SelectItem>
+                    <SelectItem value="severity">By Severity</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </CardHeader>
 
-          {findings.length === 0 ? (
+          {displayedFindings.length === 0 ? (
             <CardContent>
               <div className="flex flex-col items-center py-8 text-muted-foreground">
                 <FileSearch className="w-6 h-6 mb-2" />
-                <p className="text-sm">No findings in this run.</p>
+                <p className="text-sm">{showSuppressed ? "No findings in this run." : "No open findings in this run."}</p>
               </div>
             </CardContent>
           ) : (
@@ -569,11 +717,11 @@ export default function TaskResults() {
                   </TableHeader>
                   <TableBody>
                     {items.map((finding) => {
-                      const isAllowlisted = allowlistedIds.has(finding.id);
+                      const isSuppressed = finding.status === "dismissed";
                       return (
                       <TableRow
                         key={finding.id}
-                        className={`border-border ${isAllowlisted ? "opacity-50" : ""}`}
+                        className={`border-border ${isSuppressed ? "opacity-50" : ""}`}
                         data-testid={`row-finding-${finding.id}`}
                       >
                         <TableCell>
@@ -600,8 +748,8 @@ export default function TaskResults() {
                           >
                             {finding.file}
                           </button>
-                          {isAllowlisted && (
-                            <Badge variant="outline" className="ml-2 text-[9px] border-emerald-500/30 text-emerald-400">allowlisted</Badge>
+                          {isSuppressed && (
+                            <Badge variant="outline" className="ml-2 text-[9px] border-amber-500/30 text-amber-400">suppressed</Badge>
                           )}
                         </TableCell>
                         <TableCell>
@@ -620,36 +768,50 @@ export default function TaskResults() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <AllowlistPopover
-                              finding={finding}
-                              taskId={taskId!}
-                              onAllowlisted={() => {
-                                setAllowlistedIds((prev) => new Set([...Array.from(prev), finding.id]));
-                                queryClient.invalidateQueries({ queryKey: [`/api/tasks/${taskId}`] });
-                              }}
-                            />
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6"
-                                  title="LLM actions"
-                                >
-                                  <Brain className="h-3.5 w-3.5" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-56">
-                                <DropdownMenuItem onClick={() => handleAskLLM(finding)}>
-                                  <Brain className="w-4 h-4 mr-2" />
-                                  Analyze Finding
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleRefineRule(finding)}>
-                                  <Filter className="w-4 h-4 mr-2" />
-                                  Refine / Suppress Rule
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                            {isSuppressed ? (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-amber-400 hover:text-amber-300"
+                                title="Why suppressed?"
+                                onClick={() => handleSuppressedInfo(finding)}
+                              >
+                                <Info className="h-3.5 w-3.5" />
+                              </Button>
+                            ) : (
+                              <>
+                                <AllowlistPopover
+                                  finding={finding}
+                                  taskId={taskId!}
+                                  onAllowlisted={() => {
+                                    setAllowlistedIds((prev) => new Set([...Array.from(prev), finding.id]));
+                                    queryClient.invalidateQueries({ queryKey: [`/api/tasks/${taskId}`] });
+                                  }}
+                                />
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                      title="LLM actions"
+                                    >
+                                      <Brain className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-56">
+                                    <DropdownMenuItem onClick={() => handleAskLLM(finding)}>
+                                      <Brain className="w-4 h-4 mr-2" />
+                                      Analyze Finding
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleRefineRule(finding)}>
+                                      <Filter className="w-4 h-4 mr-2" />
+                                      Refine / Suppress Rule
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -867,6 +1029,84 @@ export default function TaskResults() {
               </p>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Suppressed Finding Info Dialog */}
+      <Dialog open={suppressedInfoOpen} onOpenChange={setSuppressedInfoOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <EyeOff className="w-4 h-4" />
+              Suppressed Finding: {suppressedInfoFinding?.rule_name || suppressedInfoFinding?.rule_id}
+            </DialogTitle>
+          </DialogHeader>
+          {suppressedInfoFinding && (
+            <div className="mt-4 space-y-4">
+              <div className="text-xs bg-muted/50 rounded p-3 space-y-1">
+                <div><span className="font-medium">File:</span> {suppressedInfoFinding.file}:{suppressedInfoFinding.line ?? "—"}</div>
+                <div><span className="font-medium">Matched:</span> <code className="text-amber-400/90">{suppressedInfoFinding.matched_text}</code></div>
+                <div><span className="font-medium">Dismissed:</span> {suppressedInfoFinding.dismissed_reason || "No reason recorded"}</div>
+                {suppressedInfoFinding.dismissed_at && (
+                  <div><span className="font-medium">At:</span> {safeFormat(suppressedInfoFinding.dismissed_at, "MMM d, HH:mm")}</div>
+                )}
+              </div>
+
+              {(() => {
+                const match = getAllowlistMatchForFinding(suppressedInfoFinding);
+                if (!match) return null;
+                return (
+                  <div className="text-xs border rounded p-3 space-y-1">
+                    <p className="font-medium text-muted-foreground mb-1">Matching Allowlist Entry</p>
+                    {match.rules?.length && (
+                      <div><span className="text-muted-foreground">Rules:</span> {match.rules.join(", ")}</div>
+                    )}
+                    {match.file && (
+                      <div><span className="text-muted-foreground">File:</span> <code className="text-cyan-400 font-code">{match.file}</code></div>
+                    )}
+                    {match.match && (
+                      <div><span className="text-muted-foreground">Match:</span> <code className="text-cyan-400 font-code">{match.match}</code></div>
+                    )}
+                    {match.pattern && (
+                      <div><span className="text-muted-foreground">Pattern:</span> <code className="text-cyan-400 font-code">{match.pattern}</code></div>
+                    )}
+                    {match.reason && (
+                      <div><span className="text-muted-foreground">Reason:</span> {match.reason}</div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSuppressedLLMExplain}
+                  disabled={suppressedAnalysisLoading}
+                >
+                  {suppressedAnalysisLoading ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                      Asking LLM...
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="w-3.5 h-3.5 mr-1.5" />
+                      Ask LLM: Is this suppression valid?
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {suppressedAnalysis && (
+                <div className="text-sm whitespace-pre-wrap font-light leading-relaxed border-l-2 border-muted pl-4 py-2 bg-muted/50 rounded">
+                  {typeof suppressedAnalysis.analysis === 'string'
+                    ? suppressedAnalysis.analysis
+                    : JSON.stringify(suppressedAnalysis.analysis, null, 2)}
+                </div>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

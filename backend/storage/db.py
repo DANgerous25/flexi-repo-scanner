@@ -512,6 +512,34 @@ async def cleanup_old_data(days: int) -> int:
     return count
 
 
+async def delete_run(run_id: str) -> bool:
+    """Delete a single run and its findings. Returns True if run existed."""
+    db = await get_db()
+    row = await _fetchone(db, "SELECT id FROM scan_runs WHERE id = ?", (run_id,))
+    if not row:
+        return False
+    await db.execute("DELETE FROM findings WHERE run_id = ?", (run_id,))
+    await db.execute("DELETE FROM notifications WHERE run_id = ?", (run_id,))
+    await db.execute("DELETE FROM scan_runs WHERE id = ?", (run_id,))
+    await db.commit()
+    return True
+
+
+async def delete_task_runs(task_id: str) -> int:
+    """Delete all runs and findings for a task. Returns count of runs deleted."""
+    db = await get_db()
+    run_ids = await _fetchall(db, "SELECT id FROM scan_runs WHERE task_id = ?", (task_id,))
+    if not run_ids:
+        return 0
+    ids = [r["id"] for r in run_ids]
+    placeholders = ",".join("?" * len(ids))
+    await db.execute(f"DELETE FROM findings WHERE run_id IN ({placeholders})", ids)
+    await db.execute(f"DELETE FROM notifications WHERE run_id IN ({placeholders})", ids)
+    await db.execute(f"DELETE FROM scan_runs WHERE task_id = ?", (task_id,))
+    await db.commit()
+    return len(ids)
+
+
 # ── Finding Management ──────────────────────────────────────────────────
 
 async def get_open_findings(task_id: str = "", limit: int = 100) -> list[dict]:

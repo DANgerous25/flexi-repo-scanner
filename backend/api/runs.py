@@ -65,3 +65,19 @@ async def stop_run(run_id: str):
     else:
         logger.info("Run %s manually stopped by user", run_id)
     return await db.get_run(run_id)
+
+
+@router.delete("/{run_id}")
+async def delete_run(run_id: str):
+    """Delete a run and all its findings."""
+    deleted = await db.delete_run(run_id)
+    if not deleted:
+        raise HTTPException(404, "Run not found")
+    return {"message": "Run deleted", "run_id": run_id}
+
+
+@router.delete("/task/{task_id}/all")
+async def delete_all_task_runs(task_id: str):
+    """Delete all runs and findings for a task."""
+    count = await db.delete_task_runs(task_id)
+    return {"message": f"Deleted {count} runs", "task_id": task_id, "deleted_count": count}

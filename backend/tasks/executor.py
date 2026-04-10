@@ -561,6 +561,10 @@ async def _run_llm_scan(
             if _is_allowlisted(fp, mt, "llm-review", task.scan.allowlist):
                 continue
             findings.append(
+                {
+                    "run_id": run_id,
+                    "task_id": task.id,
+                    "category": f.get("category", "LLM Review"),
                     "file_path": f.get("file", ""),
                     "line_number": f.get("line", 0),
                     "severity": f.get("severity", "medium"),

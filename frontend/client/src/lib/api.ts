@@ -35,8 +35,10 @@ async function put<T>(url: string, data?: unknown): Promise<T> {
   return res.json();
 }
 
-async function del(url: string): Promise<void> {
-  await apiRequest("DELETE", url);
+async function del<T = void>(url: string): Promise<T> {
+  const res = await apiRequest("DELETE", url);
+  if (res.status === 204) return undefined as T;
+  return res.json();
 }
 
 // ── Dashboard ───────────────────────────────────────────
@@ -117,6 +119,14 @@ export async function cancelRun(runId: string): Promise<TaskRun> {
 export async function stopRun(runId: string): Promise<TaskRun> {
   const raw = await post<any>(`/api/runs/${encodeURIComponent(runId)}/stop`);
   return normalizeRun(raw);
+}
+
+export async function deleteRun(runId: string): Promise<{ message: string; run_id: string }> {
+  return del(`/api/runs/${encodeURIComponent(runId)}`);
+}
+
+export async function deleteAllTaskRuns(taskId: string): Promise<{ message: string; deleted_count: number }> {
+  return del(`/api/runs/task/${encodeURIComponent(taskId)}/all`);
 }
 
 function normalizeRun(r: any): TaskRun {
@@ -422,4 +432,12 @@ export async function applyRuleRefinement(
     modifications,
     allowlist_additions: allowlistAdditions,
   });
+}
+
+export async function fetchSuppressedFindings(runId: string): Promise<Finding[]> {
+  const raw = await get<any>(`/api/results/${encodeURIComponent(runId)}/findings`);
+  const list = Array.isArray(raw) ? raw : (raw.findings ?? []);
+  return list
+    .filter((f: any) => f.status === "dismissed")
+    .map(normalizeFinding);
 }
