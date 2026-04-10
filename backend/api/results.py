@@ -283,3 +283,310 @@ FILE CONTEXT (first 1500 chars):
                 "output": result.get("output_tokens", 0),
             },
         }
+
+
+class RefineRuleRequest(BaseModel):
+    task_id: str
+    rule_id: str
+    finding_context: str = ""
+    prompt: str = ""
+
+
+REFINE_RULE_SYSTEM = """You are a regex rule refinement expert for a code scanner.
+The user will describe a problem with an existing scanning rule (e.g., too many false positives,
+missing edge cases). You must suggest precise changes to the rule.
+
+Output ONLY valid YAML with these sections (omit sections with no changes):
+
+rules_to_modify:
+  - id: "the-rule-id"
+    changes:
+      pattern: 'new-regex-pattern'
+      context_requires: 'optional-context-regex'
+      case_sensitive: true/false
+
+allowlist_to_add:
+  - file: "glob/pattern"
+    match: "exact-text-to-ignore"
+    rules: ["rule-id"]
+    reason: "Why this is allowlisted"
+
+Explain each change briefly in a YAML comment."""
+
+REFINE_RULE_TEMPLATE = """## Rule to Refine
+
+Rule ID: {rule_id}
+Task: {task_id}
+
+{finding_section}
+
+## User's Request
+
+{prompt}
+
+## Current Rule Definition
+
+{current_rule}
+
+Suggest specific changes to fix the issue described above."""
+
+
+@router.post("/refine-rule")
+async def refine_rule(req: RefineRuleRequest):
+    """Use LLM to suggest rule refinements based on false positives or missed findings."""
+    import re as _re
+    import yaml
+
+    settings = config_loader.load_settings()
+    task = config_loader.load_task(req.task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+
+    # Find the rule in the task (including expanded recipes)
+    from backend.recipes import resolve_recipes
+    all_rules = list(task.scan.rules)
+    if task.scan.recipes:
+        resolved = resolve_recipes(task.scan.recipes)
+        existing_ids = {r.id for r in all_rules}
+        for r in resolved["rules"]:
+            if r.id not in existing_ids:
+                all_rules.append(r)
+
+    current_rule = None
+    for r in all_rules:
+        if r.id == req.rule_id:
+            current_rule = r
+            break
+
+    if not current_rule:
+        raise HTTPException(404, f"Rule '{req.rule_id}' not found in task")
+
+    rule_yaml = yaml.dump(
+        [{"id": current_rule.id, "name": current_rule.name, "pattern": current_rule.pattern,
+          "severity": current_rule.severity, "case_sensitive": current_rule.case_sensitive,
+          "context_requires": current_rule.context_requires}],
+        default_flow_style=False,
+    )
+
+    finding_section = ""
+    if req.finding_context:
+        finding_section = f"## Example False Positive / Problem Finding\n\n{req.finding_context}"
+
+    user_msg = REFINE_RULE_TEMPLATE.format(
+        rule_id=req.rule_id,
+        task_id=req.task_id,
+        finding_section=finding_section,
+        prompt=req.prompt,
+        current_rule=rule_yaml,
+    )
+
+    result = await llm.complete(
+        model="auto",
+        messages=[
+            {"role": "system", "content": REFINE_RULE_SYSTEM},
+            {"role": "user", "content": user_msg},
+        ],
+        settings=settings,
+        temperature=0.1,
+        max_tokens=2048,
+    )
+
+    raw_content = result.get("content", "")
+
+    # Parse suggestions
+    parsed = _parse_rule_suggestions(raw_content)
+
+    return {
+        "suggestions": raw_content,
+        "parsed": parsed,
+        "model": result.get("model", "unknown"),
+        "tokens": {
+            "input": result.get("input_tokens", 0),
+            "output": result.get("output_tokens", 0),
+        },
+        "current_rule": {
+            "id": current_rule.id,
+            "name": current_rule.name,
+            "pattern": current_rule.pattern,
+            "severity": current_rule.severity,
+            "case_sensitive": current_rule.case_sensitive,
+            "context_requires": current_rule.context_requires,
+        },
+    }
+
+
+def _parse_rule_suggestions(raw: str) -> dict:
+    """Parse LLM refinement suggestions into structured data."""
+    import yaml
+
+    # Strip markdown code fences
+    text = raw.strip()
+    if text.startswith("```"):
+        first_newline = text.index("\n") if "\n" in text else len(text)
+        text = text[first_newline + 1:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+
+    try:
+        data = yaml.safe_load(text) or {}
+    except yaml.YAMLError:
+        return {"raw": raw}
+
+    if not isinstance(data, dict):
+        return {"raw": raw}
+
+    return {
+        "rules_to_modify": data.get("rules_to_modify", []),
+        "allowlist_to_add": data.get("allowlist_to_add", []),
+    }
+
+
+@router.post("/apply-rule-refinement")
+async def apply_rule_refinement(task_id: str, modifications: list[dict], allowlist_additions: list[dict]):
+    """Apply rule refinements to a task config."""
+    task = config_loader.load_task(task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+
+    # Apply rule modifications
+    for mod in modifications:
+        rule_id = mod.get("id", "")
+        changes = mod.get("changes", {})
+        for rule in task.scan.rules:
+            if rule.id == rule_id:
+                for key, value in changes.items():
+                    if hasattr(rule, key):
+                        setattr(rule, key, value)
+
+    # Add allowlist entries
+    from backend.config import AllowlistEntry
+    for entry_data in allowlist_additions:
+        task.scan.allowlist.append(AllowlistEntry(
+            file=entry_data.get("file", ""),
+            match=entry_data.get("match", ""),
+            pattern=entry_data.get("pattern", ""),
+            rules=entry_data.get("rules", []),
+            reason=entry_data.get("reason", ""),
+        ))
+
+    config_loader.save_task(task)
+    return {"message": "Refinements applied", "rules_modified": len(modifications), "allowlist_added": len(allowlist_additions)}
+
+
+class BulkSuppressRequest(BaseModel):
+    task_id: str
+    llm_response: str
+
+
+@router.post("/bulk-suppress")
+async def bulk_suppress(req: BulkSuppressRequest):
+    """Parse an LLM's structured JSON response and apply suppress/refine_rule actions."""
+    task = config_loader.load_task(req.task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+
+    raw = req.llm_response.strip()
+    json_str = raw
+    fence = raw.find("```json")
+    if fence >= 0:
+        start = raw.find("\n", fence) + 1
+        end = raw.find("```", start)
+        json_str = raw[start:end].strip() if end > start else raw[start:].strip()
+    elif raw.find("```") >= 0:
+        start = raw.find("\n", raw.find("```")) + 1
+        end = raw.find("```", start)
+        json_str = raw[start:end].strip() if end > start else raw[start:].strip()
+
+    try:
+        items = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        raise HTTPException(400, f"Invalid JSON: {e}")
+
+    if not isinstance(items, list):
+        raise HTTPException(400, "Expected a JSON array")
+
+    from backend.config import AllowlistEntry
+
+    allowlist_added = 0
+    rules_refined = 0
+    fixes_suggested = 0
+    errors = []
+
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            errors.append(f"Item {i}: not an object")
+            continue
+
+        action = item.get("action", "")
+        index = item.get("index", i + 1)
+        reason = item.get("reason", "")
+
+        if action == "suppress":
+            scope = item.get("suppress_scope", "match")
+            entry_data: dict = {"reason": reason or f"Suppressed by LLM review (finding #{index})"}
+
+            if scope == "file":
+                entry_data["file"] = item.get("suppress_file", "")
+                if item.get("suppress_rules"):
+                    entry_data["rules"] = item["suppress_rules"]
+            elif scope == "rule":
+                entry_data["rules"] = item.get("suppress_rules", [])
+            else:
+                entry_data["match"] = item.get("suppress_match", "")
+                if item.get("suppress_rules"):
+                    entry_data["rules"] = item["suppress_rules"]
+
+            task.scan.allowlist.append(AllowlistEntry(**entry_data))
+            allowlist_added += 1
+
+        elif action == "refine_rule":
+            rule_id = item.get("rule_id", "")
+            changes = {}
+            if item.get("suggested_pattern"):
+                changes["pattern"] = item["suggested_pattern"]
+            if item.get("suggested_context_requires"):
+                changes["context_requires"] = item["suggested_context_requires"]
+
+            matched = False
+            for rule in task.scan.rules:
+                if rule.id == rule_id:
+                    for key, value in changes.items():
+                        if hasattr(rule, key):
+                            setattr(rule, key, value)
+                    matched = True
+                    break
+
+            if not matched and changes:
+                existing_ids = {r.id for r in task.scan.rules}
+                if rule_id not in existing_ids:
+                    from backend.config import ScanRule
+                    new_rule = ScanRule(
+                        id=rule_id,
+                        name=item.get("rule_id", rule_id),
+                        pattern=changes.get("pattern", ""),
+                        severity="medium",
+                        context_requires=changes.get("context_requires", ""),
+                    )
+                    task.scan.rules.append(new_rule)
+                    matched = True
+
+            if matched or changes:
+                rules_refined += 1
+
+        elif action == "fix":
+            fixes_suggested += 1
+
+        else:
+            errors.append(f"Item {i}: unknown action '{action}'")
+
+    if allowlist_added > 0 or rules_refined > 0:
+        config_loader.save_task(task)
+
+    return {
+        "message": f"Applied: {allowlist_added} suppressions, {rules_refined} rule refinements, {fixes_suggested} fix suggestions",
+        "allowlist_added": allowlist_added,
+        "rules_refined": rules_refined,
+        "fixes_suggested": fixes_suggested,
+        "errors": errors,
+    }

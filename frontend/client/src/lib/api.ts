@@ -441,3 +441,16 @@ export async function fetchSuppressedFindings(runId: string): Promise<Finding[]>
     .filter((f: any) => f.status === "dismissed")
     .map(normalizeFinding);
 }
+
+export async function bulkSuppress(
+  taskId: string,
+  llmResponse: string,
+): Promise<{
+  message: string;
+  allowlist_added: number;
+  rules_refined: number;
+  fixes_suggested: number;
+  errors: string[];
+}> {
+  return post("/api/results/bulk-suppress", { task_id: taskId, llm_response: llmResponse });
+}

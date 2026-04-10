@@ -62,6 +62,7 @@ import {
   refineRule,
   applyRuleRefinement,
   dismissFinding,
+  bulkSuppress,
 } from "@/lib/api";
 import CodeViewer from "@/components/CodeViewer";
 import type { Task, TaskRun, Finding, AllowlistEntry } from "@/lib/types";
@@ -84,6 +85,7 @@ import {
   Trash2,
   Info,
   EyeOff,
+  Upload,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -100,19 +102,18 @@ function safeRelative(dateStr: string | undefined): string {
 }
 
 function formatFindingsForLLM(task: Task, run: TaskRun, findings: Finding[]): string {
-  const lines: string[] = [];
   const openFindings = findings.filter((f) => !f.status || f.status === "open");
+  if (openFindings.length === 0) return "No open findings to review.";
+
+  const lines: string[] = [];
 
   lines.push(`# Code Review Request — ${task.name}`);
-  lines.push("");
-  lines.push(`Repository: ${task.connection}`);
-  lines.push(`Scan type: ${task.scan?.type ?? "pattern"} | Run: ${safeFormat(run.started_at, "yyyy-MM-dd HH:mm")}`);
+  lines.push(`Repository: ${task.connection} | Scan: ${task.scan?.type ?? "pattern"} | Run: ${safeFormat(run.started_at, "yyyy-MM-dd HH:mm")}`);
   lines.push(`Total findings: ${openFindings.length}`);
   lines.push("");
 
   if (task.scan?.allowlist?.length) {
-    lines.push("## Suppressed Rules (already allowlisted — skip these patterns)");
-    lines.push("");
+    lines.push("## Already Suppressed (skip these)");
     for (const entry of task.scan.allowlist) {
       const scope = entry.file ? `file=${entry.file}` : entry.match ? `match="${entry.match}"` : entry.pattern ? `pattern=${entry.pattern}` : `rules=${(entry.rules || []).join(",")}`;
       lines.push(`- ${scope} — ${entry.reason || "no reason"}`);
@@ -120,40 +121,57 @@ function formatFindingsForLLM(task: Task, run: TaskRun, findings: Finding[]): st
     lines.push("");
   }
 
-  lines.push("## Findings");
+  lines.push("## Findings to Review");
   lines.push("");
-
-  const bySeverity: Record<string, Finding[]> = {};
-  for (const f of openFindings) {
-    const key = f.severity || "medium";
-    if (!bySeverity[key]) bySeverity[key] = [];
-    bySeverity[key].push(f);
-  }
-
-  const severityOrder = ["critical", "high", "medium", "low", "info"];
-  for (const sev of severityOrder) {
-    const items = bySeverity[sev];
-    if (!items?.length) continue;
-    lines.push(`### ${sev.toUpperCase()} (${items.length})`);
-    lines.push("");
-    let idx = 1;
-    for (const f of items) {
-      lines.push(`**${idx}. ${f.rule_name || f.rule_id}** — \`${f.file}:${f.line ?? "—"}\``);
-      lines.push(`   Matched: \`${f.matched_text}\``);
-      if (f.context) {
-        const ctxLines = f.context.split("\n").slice(0, 5).join("\n");
-        lines.push(`   Context:`);
-        lines.push("```");
-        lines.push(ctxLines);
-        lines.push("```");
-      }
-      lines.push("");
-      idx++;
+  for (let i = 0; i < openFindings.length; i++) {
+    const f = openFindings[i];
+    lines.push(`[${i + 1}] ${f.rule_name || f.rule_id} | ${f.severity} | ${f.file}:${f.line ?? "—"}`);
+    lines.push(`    matched: ${f.matched_text}`);
+    if (f.context) {
+      lines.push(`    context: ${f.context.split("\n").slice(0, 3).join(" | ")}`);
     }
+    lines.push("");
   }
 
-  lines.push("---");
-  lines.push("For each finding: is it a true positive worth fixing? If so, what is the specific fix? If it is a false positive or low priority, explain why.");
+  lines.push("## Instructions");
+  lines.push("");
+  lines.push("For EACH finding, decide one action: `suppress` or `fix` or `refine_rule`.");
+  lines.push("");
+  lines.push("- **suppress**: False positive or acceptable risk. Add to allowlist.");
+  lines.push("- **fix**: True positive worth fixing. Describe the specific code change.");
+  lines.push("- **refine_rule**: Rule is too broad, suggest a regex or context_requires change.");
+  lines.push("");
+  lines.push("Respond with ONLY a JSON array. No markdown, no explanation outside the JSON.");
+  lines.push("Format:");
+  lines.push("```json");
+  lines.push("[");
+  lines.push("  {");
+  lines.push('    "index": 1,');
+  lines.push('    "action": "suppress",');
+  lines.push('    "reason": "why this is a false positive",');
+  lines.push('    "suppress_scope": "match|file|rule",');
+  lines.push('    "suppress_file": "path/to/file (if scope=file)",');
+  lines.push('    "suppress_match": "exact text (if scope=match)",');
+  lines.push('    "suppress_rules": ["rule-id"] (if scope=rule)');
+  lines.push("  },");
+  lines.push("  {");
+  lines.push('    "index": 2,');
+  lines.push('    "action": "fix",');
+  lines.push('    "reason": "why this needs fixing",');
+  lines.push('    "suggested_fix": "specific code change"');
+  lines.push("  },");
+  lines.push("  {");
+  lines.push('    "index": 3,');
+  lines.push('    "action": "refine_rule",');
+  lines.push('    "reason": "why the rule is too broad",');
+  lines.push('    "rule_id": "the-rule-id",');
+  lines.push('    "suggested_pattern": "improved regex (optional)",');
+  lines.push('    "suggested_context_requires": "required context keywords (optional)"');
+  lines.push("  }");
+  lines.push("]");
+  lines.push("```");
+  lines.push("");
+  lines.push("Respond with ONLY the JSON array. No other text.");
 
   return lines.join("\n");
 }
@@ -189,6 +207,10 @@ export default function TaskResults() {
   const [deleteRunAlertOpen, setDeleteRunAlertOpen] = useState(false);
   const [deleteRunTarget, setDeleteRunTarget] = useState<string | null>(null);
   const [deleteAllAlertOpen, setDeleteAllAlertOpen] = useState(false);
+  const [bulkSuppressOpen, setBulkSuppressOpen] = useState(false);
+  const [bulkSuppressText, setBulkSuppressText] = useState("");
+  const [bulkSuppressApplying, setBulkSuppressApplying] = useState(false);
+  const [bulkSuppressResult, setBulkSuppressResult] = useState<any>(null);
   const findingsSectionRef = useRef<HTMLDivElement | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -335,6 +357,23 @@ export default function TaskResults() {
       toast({ title: "Failed to delete runs", description: err.message, variant: "destructive" });
     }
     setDeleteAllAlertOpen(false);
+  };
+
+  const handleBulkSuppress = async () => {
+    if (!taskId || !bulkSuppressText.trim()) return;
+    setBulkSuppressApplying(true);
+    try {
+      const result = await bulkSuppress(taskId, bulkSuppressText);
+      setBulkSuppressResult(result);
+      if (result.allowlist_added > 0 || result.rules_refined > 0) {
+        queryClient.invalidateQueries({ queryKey: [`/api/tasks/${taskId}`] });
+      }
+    } catch (err: any) {
+      toast({ title: "Bulk suppress failed", description: err.message, variant: "destructive" });
+      setBulkSuppressResult({ errors: [err.message] });
+    } finally {
+      setBulkSuppressApplying(false);
+    }
   };
 
   const handleSuppressedInfo = (finding: Finding) => {
@@ -646,6 +685,19 @@ export default function TaskResults() {
                     {copied ? "Copied" : "Copy for LLM"}
                   </Button>
                 )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                  onClick={() => {
+                    setBulkSuppressOpen(true);
+                    setBulkSuppressText("");
+                    setBulkSuppressResult(null);
+                  }}
+                >
+                  <Upload className="w-3 h-3" />
+                  Apply LLM Response
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -1107,6 +1159,105 @@ export default function TaskResults() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Suppress / Apply LLM Response Dialog */}
+      <Dialog open={bulkSuppressOpen} onOpenChange={setBulkSuppressOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="w-4 h-4" />
+              Apply LLM Response — Bulk Suppress &amp; Refine
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            <div className="text-xs text-muted-foreground bg-muted/50 rounded p-3">
+              <p>Paste the structured JSON response from an LLM that reviewed your findings.</p>
+              <p className="mt-1">The prompt from <strong>Copy for LLM</strong> asks the LLM to respond with a JSON array of <code>suppress</code>, <code>fix</code>, or <code>refine_rule</code> actions. Paste that JSON here.</p>
+            </div>
+
+            {!bulkSuppressResult && (
+              <>
+                <Textarea
+                  value={bulkSuppressText}
+                  onChange={(e) => setBulkSuppressText(e.target.value)}
+                  placeholder={'Paste LLM JSON response here...\n\nExample:\n[\n  {"index": 1, "action": "suppress", "reason": "SVG path data, not a credit card", "suppress_scope": "file", "suppress_file": "frontend/src/components/ThresholdConfiguratorModal.tsx"},\n  {"index": 2, "action": "refine_rule", "rule_id": "credit-card-number", "suggested_pattern": "\\\\b(?:\\\\d{4}[ -]?){3}\\\\d{4}\\\\b"}\n]'}
+                  className="min-h-[200px] text-xs font-code"
+                  disabled={bulkSuppressApplying}
+                />
+                <Button
+                  onClick={handleBulkSuppress}
+                  disabled={bulkSuppressApplying || !bulkSuppressText.trim()}
+                  className="w-full"
+                >
+                  {bulkSuppressApplying ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Applying...
+                    </>
+                  ) : (
+                    <>
+                      <Wrench className="w-4 h-4 mr-2" />
+                      Parse &amp; Apply
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
+
+            {bulkSuppressResult && (
+              <>
+                <div className="text-sm border rounded p-3 space-y-2">
+                  <p className="font-medium">{bulkSuppressResult.message}</p>
+                  {bulkSuppressResult.allowlist_added > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      <ShieldOff className="w-3 h-3 inline mr-1" />
+                      {bulkSuppressResult.allowlist_added} allowlist entries added
+                    </p>
+                  )}
+                  {bulkSuppressResult.rules_refined > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      <Filter className="w-3 h-3 inline mr-1" />
+                      {bulkSuppressResult.rules_refined} rules refined
+                    </p>
+                  )}
+                  {bulkSuppressResult.fixes_suggested > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      <Brain className="w-3 h-3 inline mr-1" />
+                      {bulkSuppressResult.fixes_suggested} fix suggestions (noted but not auto-applied)
+                    </p>
+                  )}
+                  {bulkSuppressResult.errors?.length > 0 && (
+                    <div className="text-xs text-red-400 mt-2 space-y-1">
+                      {bulkSuppressResult.errors.map((err: string, i: number) => (
+                        <div key={i}>{err}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setBulkSuppressResult(null);
+                      setBulkSuppressText("");
+                    }}
+                  >
+                    Apply Another
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => setBulkSuppressOpen(false)}
+                  >
+                    Done
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
