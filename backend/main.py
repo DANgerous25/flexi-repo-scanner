@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,10 +66,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow local dev server
+# CORS — allow local and tailscale access
+TAILSCALE_IP = os.environ.get("TAILSCALE_IP", "")
+_cors_origins = [
+    "http://localhost:8400",
+    "http://127.0.0.1:8400",
+]
+if TAILSCALE_IP:
+    _cors_origins.append(f"http://{TAILSCALE_IP}:8400")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8400", "http://127.0.0.1:8400"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["X-API-Key", "*"],
