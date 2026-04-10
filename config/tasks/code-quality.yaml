@@ -4,8 +4,8 @@ description: LLM-powered code quality assessment with recipe-based code smell de
 active: true
 connection: wheelpilot-v2
 schedule:
-  cron: 0 10 * * 5
-  timezone: UTC
+  cron: 0 2 * * *
+  timezone: Asia/Hong_Kong
 scan:
   mode: diff
   type: llm-review

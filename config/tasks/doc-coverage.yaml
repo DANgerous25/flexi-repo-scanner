@@ -4,8 +4,8 @@ description: Detect missing docstrings and documentation gaps
 active: true
 connection: wheelpilot-v2
 schedule:
-  cron: 0 9 * * 1
-  timezone: UTC
+  cron: 0 4 * * *
+  timezone: Asia/Hong_Kong
 scan:
   mode: full
   type: doc-coverage

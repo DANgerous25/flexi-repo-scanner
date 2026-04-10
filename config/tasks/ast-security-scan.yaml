@@ -4,8 +4,8 @@ description: AST-based security scanning for hardcoded secrets and dangerous fun
 active: true
 connection: wheelpilot-v2
 schedule:
-  cron: 0 9 * * *
-  timezone: UTC
+  cron: 0 23 * * *
+  timezone: Asia/Hong_Kong
 scan:
   mode: full
   type: ast-pattern

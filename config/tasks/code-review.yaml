@@ -4,7 +4,7 @@ description: LLM-powered review of recently changed files
 active: true
 connection: wheelpilot-v2
 schedule:
-  cron: 0 3 * * 1
+  cron: 0 3 * * *
   timezone: Asia/Hong_Kong
 scan:
   mode: diff

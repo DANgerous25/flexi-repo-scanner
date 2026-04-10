@@ -4,7 +4,7 @@ description: Detect misconfigurations in Docker, Kubernetes, Terraform, and CI/C
 active: true
 connection: wheelpilot-v2
 schedule:
-  cron: 0 4 * * *
+  cron: 0 1 * * *
   timezone: Asia/Hong_Kong
 scan:
   mode: full

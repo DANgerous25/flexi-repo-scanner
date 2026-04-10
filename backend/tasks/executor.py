@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from backend.config import AppSettings, TaskConfig, AstRule, AstNodePattern
@@ -290,6 +292,69 @@ class TaskCancelled(Exception):
     """Raised when a run is cancelled or stopped via the API."""
 
 
+async def _write_scan_output(
+    task: TaskConfig,
+    run_id: str,
+    findings: list[dict],
+    run_meta: dict,
+) -> None:
+    """Write scan results as a dated JSON file to the output directory."""
+    from backend.config import DATA_DIR
+    output_dir = DATA_DIR / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    now = datetime.now(timezone.utc)
+    date_str = now.strftime("%Y-%m-%d")
+    time_str = now.strftime("%H%M%S")
+    filename = f"{date_str}_{task.id}_{time_str}.json"
+
+    open_findings = [f for f in findings if f.get("status", "open") == "open"]
+    suppressed = [f for f in findings if f.get("status") == "dismissed"]
+
+    output = {
+        "scan_metadata": {
+            "task_id": task.id,
+            "task_name": task.name,
+            "run_id": run_id,
+            "connection": task.connection,
+            "scan_type": task.scan.type,
+            "scan_mode": task.scan.mode,
+            "started_at": run_meta.get("started_at"),
+            "completed_at": now.isoformat(),
+            "commit_sha": run_meta.get("last_commit_sha"),
+            "total_files_scanned": run_meta.get("scanned_files", 0),
+        },
+        "summary": {
+            "total_findings": len(findings),
+            "open_findings": len(open_findings),
+            "suppressed_findings": len(suppressed),
+            "by_severity": {},
+            "by_rule": {},
+        },
+        "findings": findings,
+        "allowlist": [
+            {
+                "file": e.file,
+                "match": e.match,
+                "pattern": e.pattern,
+                "rules": e.rules,
+                "reason": e.reason,
+            }
+            for e in task.scan.allowlist
+        ],
+    }
+
+    for f in findings:
+        sev = f.get("severity", "medium")
+        output["summary"]["by_severity"][sev] = output["summary"]["by_severity"].get(sev, 0) + 1
+        rid = f.get("rule_id", "unknown")
+        output["summary"]["by_rule"][rid] = output["summary"]["by_rule"].get(rid, 0) + 1
+
+    filepath = output_dir / filename
+    filepath.write_text(json.dumps(output, indent=2, default=str))
+    logger.info("Scan output written to %s", filepath)
+
+
 def _expand_recipes(task: TaskConfig) -> TaskConfig:
     """Expand recipe references into rules, allowlists, and context_filters."""
     if not task.scan.recipes:
@@ -395,6 +460,9 @@ async def run_task(task: TaskConfig, settings: AppSettings) -> str:
         await db.upsert_task_state(
             task.id, status="completed", last_commit_sha=latest_sha
         )
+
+        run_data = await db.get_run(run_id)
+        await _write_scan_output(task, run_id, all_findings, run_data or {})
 
         await _run_actions(task, settings, run_id, all_findings, conn)
 

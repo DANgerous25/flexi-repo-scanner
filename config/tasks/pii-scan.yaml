@@ -5,7 +5,7 @@ description: Detect personal information, credentials, AI attribution, and confi
 active: true
 connection: wheelpilot-v2
 schedule:
-  cron: 0 1 * * *
+  cron: 0 0 * * *
   timezone: Asia/Hong_Kong
 scan:
   mode: full
