@@ -33,7 +33,7 @@ scan:
     - '*.woff2'
     - '*.ttf'
     - '*.eot'
-    - '.playwright-mcp/'
+    - .playwright-mcp/
   rules: []
   llm:
     model: qwen/qwen3.6-plus-preview:free
@@ -116,6 +116,10 @@ scan:
     rules:
     - ai-authorship-generic
     reason: Standard AI attribution phrase
+  - match: Auto-generated
+    rules:
+    - ai-authorship-generic
+    reason: Standard auto-generated attribution phrase
   - file: docs/**
     reason: Documentation and mockups contain example PII
   - file: specs/**

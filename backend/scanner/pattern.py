@@ -58,11 +58,12 @@ def _is_allowlisted(
         # File-level allowlist
         if entry.file:
             pat = entry.file.rstrip("/")
+            prefix = re.sub(r'[*?\[\]]+', '', pat).rstrip("/")
             file_match = (
                 basename == pat
                 or PurePosixPath(file_path).match(pat)
                 or file_path == pat
-                or file_path.startswith(pat + "/")
+                or (prefix and file_path.startswith(prefix + "/"))
             )
             if file_match:
                 if not entry.rules or rule_id in entry.rules:
