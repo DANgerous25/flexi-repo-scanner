@@ -528,7 +528,13 @@ async def bulk_suppress(req: BulkSuppressRequest):
         reason = item.get("reason", "")
 
         finding = None
-        if isinstance(index, int) and 1 <= index <= len(all_findings):
+        finding_id = item.get("finding_id")
+        if finding_id:
+            for f in all_findings:
+                if f.get("id") == finding_id:
+                    finding = f
+                    break
+        if not finding and isinstance(index, int) and 1 <= index <= len(all_findings):
             finding = all_findings[index - 1]
 
         if action == "suppress":

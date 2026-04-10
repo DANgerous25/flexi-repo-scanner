@@ -125,7 +125,7 @@ function formatFindingsForLLM(task: Task, run: TaskRun, findings: Finding[]): st
   lines.push("");
   for (let i = 0; i < openFindings.length; i++) {
     const f = openFindings[i];
-    lines.push(`[${i + 1}] ${f.rule_name || f.rule_id} | ${f.severity} | ${f.file}:${f.line ?? "—"}`);
+    lines.push(`[${i + 1}] (id:${f.id}) ${f.rule_name || f.rule_id} | ${f.severity} | ${f.file}:${f.line ?? "—"}`);
     lines.push(`    matched: ${f.matched_text}`);
     if (f.context) {
       lines.push(`    context: ${f.context.split("\n").slice(0, 3).join(" | ")}`);
@@ -149,11 +149,13 @@ function formatFindingsForLLM(task: Task, run: TaskRun, findings: Finding[]): st
   lines.push('- "rule" — suppress all findings from this rule. Omit suppress_rules; it is auto-filled.');
   lines.push("");
   lines.push("You only NEED to provide `index`, `action`, and `reason`.");
+  lines.push("Include `finding_id` (the id:N number) so suppressions can be precisely mapped.");
   lines.push("Format:");
   lines.push("```json");
   lines.push("[");
   lines.push("  {");
   lines.push('    "index": 1,');
+  lines.push('    "finding_id": 123,');
   lines.push('    "action": "suppress",');
   lines.push('    "reason": "why this is a false positive",');
   lines.push('    "suppress_scope": "match"');
