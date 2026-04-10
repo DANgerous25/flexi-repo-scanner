@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 from backend.config import AppSettings, TaskConfig, AstRule, AstNodePattern
 from backend.scanner.github import GitHubClient, GitHubFile, filter_files
-from backend.scanner.pattern import Finding, scan_file_content
+from backend.scanner.pattern import Finding, scan_file_content, _is_allowlisted
 from backend.scanner.llm_review import review_files
 from backend.scanner.doc_coverage import scan_doc_coverage
 from backend.storage import config_loader, db
@@ -500,6 +500,9 @@ async def _run_ast_pattern_scan(
         for node in nodes:
             for rule in applicable_rules:
                 if _match_ast_node(node, rule.pattern):
+                    matched = node.get("text", "")
+                    if _is_allowlisted(file.path, matched, rule.id, task.scan.allowlist):
+                        continue
                     findings.append(
                         {
                             "run_id": run_id,
@@ -553,11 +556,11 @@ async def _run_llm_scan(
         )
 
         for f in result.get("findings", []):
+            fp = f.get("file", "")
+            mt = f.get("suggestion", "")
+            if _is_allowlisted(fp, mt, "llm-review", task.scan.allowlist):
+                continue
             findings.append(
-                {
-                    "run_id": run_id,
-                    "task_id": task.id,
-                    "category": f.get("category", "LLM Review"),
                     "file_path": f.get("file", ""),
                     "line_number": f.get("line", 0),
                     "severity": f.get("severity", "medium"),
@@ -596,6 +599,8 @@ async def _run_doc_scan(
         file_findings = scan_doc_coverage(file.path, content)
 
         for f in file_findings:
+            if _is_allowlisted(f.file_path, f.matched_text, f.rule_id, task.scan.allowlist):
+                continue
             findings.append(
                 {
                     "run_id": run_id,

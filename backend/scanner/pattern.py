@@ -81,6 +81,11 @@ def _is_allowlisted(
                 if not entry.rules or rule_id in entry.rules:
                     return True
 
+        # Rules-only allowlist (no file/pattern/match — suppress all findings from specified rules)
+        if not entry.file and not entry.pattern and not entry.match and entry.rules:
+            if rule_id in entry.rules:
+                return True
+
     return False
 
 
