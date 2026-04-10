@@ -1,6 +1,7 @@
 id: pii-scan
 name: PII & Sensitive Data Scanner
-description: Detect personal information, credentials, AI attribution, and confidential references
+description: Detect personal information, credentials, AI attribution, and confidential
+  references
 active: true
 connection: wheelpilot-v2
 schedule:
@@ -10,9 +11,9 @@ scan:
   mode: full
   type: pattern
   recipes:
-    - pii-detection
-    - secrets-and-credentials
-    - ai-attribution
+  - pii-detection
+  - secrets-and-credentials
+  - ai-attribution
   paths:
     include:
     - '**/*'
@@ -22,6 +23,17 @@ scan:
     - dist/
     - build/
     - '*.min.js'
+    - '*.png'
+    - '*.jpg'
+    - '*.jpeg'
+    - '*.gif'
+    - '*.ico'
+    - '*.svg'
+    - '*.woff'
+    - '*.woff2'
+    - '*.ttf'
+    - '*.eot'
+    - '.playwright-mcp/'
   rules: []
   llm:
     model: qwen/qwen3.6-plus-preview:free
@@ -92,37 +104,36 @@ scan:
     rules:
     - email-address
     reason: Intentional app address
+  - match: dan-wp@wheelpilot.ai
+    rules:
+    - email-address
+    reason: Internal system email
+  - match: dev@wheelpilot.ai
+    rules:
+    - email-address
+    reason: Development/migration script email
   - match: AI-generated
     rules:
     - ai-authorship-generic
     reason: Standard AI attribution phrase
-  - file: docs/mockups/
-    rules:
-    - email-address
-    reason: Mockup files contain example emails
+  - file: docs/**
+    reason: Documentation and mockups contain example PII
+  - file: specs/**
+    reason: Specification documents reference example data
+  - file: scripts/migrate_sqlite_to_pg.py
+    reason: Legacy migration script, no longer needed
   - file: frontend/src/pages/DisclaimerPage.tsx
     rules:
-    - ai-authorship
+    - ai-authorship-generic
     reason: Disclaimer page intentionally mentions AI
-  - file: specs/LEGAL_AND_NEWSLETTER_CC_PROMPT.md
+  - file: frontend/src/components/FeedbackModal.tsx
     rules:
-    - ai-authorship
-    reason: Legal spec discusses AI usage
-  - match: z@n.gJ
-    rules:
-    - email-address
-    reason: False positive — not a real email
-  - match: DA@h.Kv
-    rules:
-    - email-address
-    reason: False positive — not a real email
-  - match: 5@Oo.PW
-    rules:
-    - email-address
-    reason: False positive — not a real email
+    - employer-reference
+    reason: working for you is a UI prompt, not an employer reference
   context_filters:
-    - type: llm-provider-usage
-      enabled: true
+  - type: llm-provider-usage
+    enabled: true
+  ast_rules: []
 actions:
 - type: in-app-notify
   trigger: findings
@@ -130,3 +141,4 @@ actions:
   trigger: findings
   model: anthropic/claude-sonnet-4-6
   target: patch-file
+task_builder_prompt: ''
