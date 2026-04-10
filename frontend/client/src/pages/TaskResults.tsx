@@ -176,6 +176,22 @@ function formatFindingsForLLM(task: Task, run: TaskRun, findings: Finding[]): st
   return lines.join("\n");
 }
 
+function copyToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.select();
+  return new Promise((resolve, reject) => {
+    document.execCommand("copy") ? resolve() : reject(new Error("copy failed"));
+    document.body.removeChild(ta);
+  });
+}
+
 export default function TaskResults() {
   const params = useParams();
   const taskId = params?.id ?? null;
@@ -660,31 +676,32 @@ export default function TaskResults() {
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {openFindings.length > 0 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={`h-7 text-xs gap-1.5 transition-colors ${
-                      copied ? "border-emerald-500/50 text-emerald-400" : ""
-                    }`}
-                    data-testid="button-copy-llm"
-                    onClick={() => {
-                      const md = formatFindingsForLLM(task, selectedRun, findings);
-                      navigator.clipboard.writeText(md).then(() => {
-                        setCopied(true);
-                        toast({ title: "Copied to clipboard", description: `${openFindings.length} findings formatted for LLM review` });
-                        setTimeout(() => setCopied(false), 2500);
-                      });
-                    }}
-                  >
-                    {copied ? (
-                      <Check className="w-3 h-3" />
-                    ) : (
-                      <ClipboardCopy className="w-3 h-3" />
-                    )}
-                    {copied ? "Copied" : "Copy for LLM"}
-                  </Button>
-                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={`h-7 text-xs gap-1.5 transition-colors ${
+                    copied ? "border-emerald-500/50 text-emerald-400" : ""
+                  }`}
+                  data-testid="button-copy-llm"
+                  disabled={openFindings.length === 0}
+                  onClick={() => {
+                    const md = formatFindingsForLLM(task, selectedRun, findings);
+                    copyToClipboard(md).then(() => {
+                      setCopied(true);
+                      toast({ title: "Copied to clipboard", description: `${openFindings.length} findings formatted for LLM review` });
+                      setTimeout(() => setCopied(false), 2500);
+                    }).catch(() => {
+                      toast({ title: "Copy failed", description: "Could not copy to clipboard", variant: "destructive" });
+                    });
+                  }}
+                >
+                  {copied ? (
+                    <Check className="w-3 h-3" />
+                  ) : (
+                    <ClipboardCopy className="w-3 h-3" />
+                  )}
+                  {copied ? "Copied" : "Copy for LLM"}
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
